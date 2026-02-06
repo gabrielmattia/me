@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+	web:
+		image: node:18-alpine
+		working_dir: /app
+		volumes:
+			- ./:/app:cached
+			- /app/node_modules
+		ports:
+			- "5173:5173"
+		environment:
+			- NODE_ENV=development
+		# Instala pnpm, dependeências e roda o dev server acessível externamente
+		command: sh -c "npm install -g pnpm && pnpm install --frozen-lockfile || pnpm install && pnpm run dev -- --host 0.0.0.0"
+		restart: unless-stopped
+		# Use .env se quiser carregar variáveis de ambiente locais
+		env_file:
+			- .env
+
