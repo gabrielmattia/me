@@ -51,7 +51,14 @@ jobs:
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            export GITHUB_USER=${{ github.repository_owner }}
+            # Clone o repo se não existir, senão faz git pull
+            if [ ! -d ~/me/.git ]; then
+              rm -rf ~/me
+              git clone https://github.com/${{ github.repository }}.git ~/me
+            else
+              cd ~/me && git pull origin main
+            fi
+
             cd ~/me
             docker pull ghcr.io/${{ github.repository_owner }}/portfolio:latest
             docker compose -f docker-compose.prod.yml up -d --force-recreate
