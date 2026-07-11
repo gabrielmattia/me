@@ -1,16 +1,16 @@
 # Stage 1: Install dependencies
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && corepack prepare --activate
 RUN pnpm install --frozen-lockfile
 
 # Stage 2: Build
 FROM node:22-alpine AS builder
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN corepack enable && corepack prepare --activate
+COPY --from=deps /app/node_modules ./node_modules
 RUN pnpm run build
 
 # Stage 3: Production
