@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PdfEditorRouteImport } from './routes/pdf-editor'
+import { Route as EmberwakeRouteImport } from './routes/emberwake'
 import { Route as IndexRouteImport } from './routes/index'
 
 const PdfEditorRoute = PdfEditorRouteImport.update({
@@ -17,6 +18,11 @@ const PdfEditorRoute = PdfEditorRouteImport.update({
   path: '/pdf-editor',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/pdf-editor.lazy').then((d) => d.Route))
+const EmberwakeRoute = EmberwakeRouteImport.update({
+  id: '/emberwake',
+  path: '/emberwake',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -25,27 +31,31 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/pdf-editor'
+  fullPaths: '/' | '/emberwake' | '/pdf-editor'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/pdf-editor'
-  id: '__root__' | '/' | '/pdf-editor'
+  to: '/' | '/emberwake' | '/pdf-editor'
+  id: '__root__' | '/' | '/emberwake' | '/pdf-editor'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EmberwakeRoute: typeof EmberwakeRoute
   PdfEditorRoute: typeof PdfEditorRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/pdf-editor'
       fullPath: '/pdf-editor'
       preLoaderRoute: typeof PdfEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/emberwake': {
+      id: '/emberwake'
+      path: '/emberwake'
+      fullPath: '/emberwake'
+      preLoaderRoute: typeof EmberwakeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EmberwakeRoute: EmberwakeRoute,
   PdfEditorRoute: PdfEditorRoute,
 }
 export const routeTree = rootRouteImport
