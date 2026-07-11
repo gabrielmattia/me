@@ -9,8 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PdfEditorRouteImport } from './routes/pdf-editor'
 import { Route as IndexRouteImport } from './routes/index'
 
+const PdfEditorRoute = PdfEditorRouteImport.update({
+  id: '/pdf-editor',
+  path: '/pdf-editor',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/pdf-editor.lazy').then((d) => d.Route))
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -19,28 +25,39 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/pdf-editor': typeof PdfEditorRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/pdf-editor'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/pdf-editor'
+  id: '__root__' | '/' | '/pdf-editor'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PdfEditorRoute: typeof PdfEditorRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/pdf-editor': {
+      id: '/pdf-editor'
+      path: '/pdf-editor'
+      fullPath: '/pdf-editor'
+      preLoaderRoute: typeof PdfEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -53,6 +70,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PdfEditorRoute: PdfEditorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

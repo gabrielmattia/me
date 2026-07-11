@@ -26,6 +26,8 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.561.0",
     "nitro": "npm:nitro-nightly@latest",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.7.284",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
