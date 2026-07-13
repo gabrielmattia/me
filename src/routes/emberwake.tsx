@@ -38,7 +38,7 @@ export const Route = createFileRoute("/emberwake")({
 	head: () => ({
 		meta: [
 			{
-				title: "Emberwake",
+				title: "Emberwake — Wellington Gabriel de Mattia",
 			},
 		],
 	}),
