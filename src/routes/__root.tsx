@@ -24,7 +24,12 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Wellington Gabriel de Mattia — Full-Stack Developer',
+      },
+      {
+        name: 'description',
+        content:
+          'Portfolio of Wellington Gabriel de Mattia, a Full-Stack Developer specializing in React.js, TypeScript, Node.js, REST APIs, and PostgreSQL.',
       },
     ],
     links: [
