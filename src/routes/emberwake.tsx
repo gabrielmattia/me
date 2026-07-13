@@ -34,7 +34,16 @@ function detectOS(): OS {
 	return "mac";
 }
 
-export const Route = createFileRoute("/emberwake")({ component: Emberwake });
+export const Route = createFileRoute("/emberwake")({
+	head: () => ({
+		meta: [
+			{
+				title: "Emberwake",
+			},
+		],
+	}),
+	component: Emberwake,
+});
 
 function Emberwake() {
 	const [os, setOs] = useState<OS | null>(null);
