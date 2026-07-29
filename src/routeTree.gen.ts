@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PdfEditorRouteImport } from './routes/pdf-editor'
 import { Route as EmberwakeRouteImport } from './routes/emberwake'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PoePobbinTradePrivacyRouteImport } from './routes/poe-pobbin-trade.privacy'
 
 const PdfEditorRoute = PdfEditorRouteImport.update({
   id: '/pdf-editor',
@@ -28,35 +29,49 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PoePobbinTradePrivacyRoute = PoePobbinTradePrivacyRouteImport.update({
+  id: '/poe-pobbin-trade/privacy',
+  path: '/poe-pobbin-trade/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/emberwake' | '/pdf-editor'
+  fullPaths: '/' | '/emberwake' | '/pdf-editor' | '/poe-pobbin-trade/privacy'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/emberwake' | '/pdf-editor'
-  id: '__root__' | '/' | '/emberwake' | '/pdf-editor'
+  to: '/' | '/emberwake' | '/pdf-editor' | '/poe-pobbin-trade/privacy'
+  id:
+    | '__root__'
+    | '/'
+    | '/emberwake'
+    | '/pdf-editor'
+    | '/poe-pobbin-trade/privacy'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EmberwakeRoute: typeof EmberwakeRoute
   PdfEditorRoute: typeof PdfEditorRoute
+  PoePobbinTradePrivacyRoute: typeof PoePobbinTradePrivacyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +97,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/poe-pobbin-trade/privacy': {
+      id: '/poe-pobbin-trade/privacy'
+      path: '/poe-pobbin-trade/privacy'
+      fullPath: '/poe-pobbin-trade/privacy'
+      preLoaderRoute: typeof PoePobbinTradePrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +111,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EmberwakeRoute: EmberwakeRoute,
   PdfEditorRoute: PdfEditorRoute,
+  PoePobbinTradePrivacyRoute: PoePobbinTradePrivacyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
