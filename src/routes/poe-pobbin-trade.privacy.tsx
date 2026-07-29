@@ -179,7 +179,9 @@ function PoePobbinTradePrivacy() {
 					:
 				</p>
 				<ul className="flex list-disc flex-col gap-2 pl-6 text-muted-foreground marker:text-foreground">
-					<li>Dados de identificação pessoal (nome, e-mail, endereço, etc.);</li>
+					<li>
+						Dados de identificação pessoal (nome, e-mail, endereço, etc.);
+					</li>
 					<li>Senhas, tokens ou qualquer credencial de autenticação;</li>
 					<li>Cookies ou dados de sessão do usuário;</li>
 					<li>Histórico de navegação;</li>
