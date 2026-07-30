@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PuntaCanaRouteImport } from './routes/punta-cana'
 import { Route as PdfEditorRouteImport } from './routes/pdf-editor'
 import { Route as EmberwakeRouteImport } from './routes/emberwake'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PoePobbinTradePrivacyRouteImport } from './routes/poe-pobbin-trade.privacy'
 
+const PuntaCanaRoute = PuntaCanaRouteImport.update({
+  id: '/punta-cana',
+  path: '/punta-cana',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PdfEditorRoute = PdfEditorRouteImport.update({
   id: '/pdf-editor',
   path: '/pdf-editor',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRoutesById {
@@ -52,18 +60,30 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
   '/pdf-editor': typeof PdfEditorRoute
+  '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/emberwake' | '/pdf-editor' | '/poe-pobbin-trade/privacy'
+  fullPaths:
+    | '/'
+    | '/emberwake'
+    | '/pdf-editor'
+    | '/punta-cana'
+    | '/poe-pobbin-trade/privacy'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/emberwake' | '/pdf-editor' | '/poe-pobbin-trade/privacy'
+  to:
+    | '/'
+    | '/emberwake'
+    | '/pdf-editor'
+    | '/punta-cana'
+    | '/poe-pobbin-trade/privacy'
   id:
     | '__root__'
     | '/'
     | '/emberwake'
     | '/pdf-editor'
+    | '/punta-cana'
     | '/poe-pobbin-trade/privacy'
   fileRoutesById: FileRoutesById
 }
@@ -71,11 +91,19 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EmberwakeRoute: typeof EmberwakeRoute
   PdfEditorRoute: typeof PdfEditorRoute
+  PuntaCanaRoute: typeof PuntaCanaRoute
   PoePobbinTradePrivacyRoute: typeof PoePobbinTradePrivacyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/punta-cana': {
+      id: '/punta-cana'
+      path: '/punta-cana'
+      fullPath: '/punta-cana'
+      preLoaderRoute: typeof PuntaCanaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pdf-editor': {
       id: '/pdf-editor'
       path: '/pdf-editor'
@@ -111,6 +139,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EmberwakeRoute: EmberwakeRoute,
   PdfEditorRoute: PdfEditorRoute,
+  PuntaCanaRoute: PuntaCanaRoute,
   PoePobbinTradePrivacyRoute: PoePobbinTradePrivacyRoute,
 }
 export const routeTree = rootRouteImport
