@@ -1,0 +1,56 @@
+import {
+	createContext,
+	type Dispatch,
+	type SetStateAction,
+	useContext,
+} from "react";
+import type { DocAction } from "./state";
+import type { DocState, TextObject, Tool, ToolDefaults } from "./types";
+
+export interface TextDraft {
+	object: TextObject;
+	/** `true` = ainda não existe no documento (texto novo ou bloco do PDF). */
+	isNew: boolean;
+}
+
+export interface EditorContextValue {
+	doc: DocState;
+	dispatch: Dispatch<DocAction>;
+	zoom: number;
+	tool: Tool;
+	setTool: (tool: Tool) => void;
+	selectedId: string | null;
+	select: (id: string | null) => void;
+	defaults: ToolDefaults;
+	draft: TextDraft | null;
+	setDraft: Dispatch<SetStateAction<TextDraft | null>>;
+	/** Confirma o rascunho de texto; com `id`, só se ainda for o rascunho atual. */
+	commitDraft: (id?: string) => void;
+}
+
+export const EditorContext = createContext<EditorContextValue | null>(null);
+
+export function useEditor(): EditorContextValue {
+	const ctx = useContext(EditorContext);
+	if (!ctx) throw new Error("useEditor fora do EditorContext");
+	return ctx;
+}
+
+/** Acompanha o ponteiro na janela inteira até soltar (funciona fora do elemento). */
+export function trackPointer(
+	onMove: (ev: PointerEvent) => void,
+	onEnd: (ev: PointerEvent) => void,
+) {
+	const move = (ev: PointerEvent) => onMove(ev);
+	const end = (ev: PointerEvent) => {
+		window.removeEventListener("pointermove", move);
+		window.removeEventListener("pointerup", end);
+		window.removeEventListener("pointercancel", end);
+		document.body.style.userSelect = "";
+		onEnd(ev);
+	};
+	document.body.style.userSelect = "none";
+	window.addEventListener("pointermove", move);
+	window.addEventListener("pointerup", end);
+	window.addEventListener("pointercancel", end);
+}
