@@ -142,6 +142,8 @@ const HANDLE_DIR: Record<Handle, [number, number]> = {
 };
 
 export const CORNER_HANDLES: Handle[] = ["nw", "ne", "se", "sw"];
+/** Texto: cantos escalam a fonte; laterais mudam a largura (quebra de linha). */
+export const TEXT_HANDLES: Handle[] = ["nw", "ne", "se", "sw", "e", "w"];
 export const ALL_HANDLES: Handle[] = [
 	"nw",
 	"n",

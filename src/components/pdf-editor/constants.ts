@@ -63,6 +63,7 @@ export const DEFAULTS: ToolDefaults = {
 		color: "#111827",
 		bold: false,
 		italic: false,
+		underline: false,
 		align: "left",
 	},
 	shape: { fill: null, stroke: "#2563eb", strokeWidth: 2, opacity: 1 },

@@ -26,6 +26,8 @@ export interface EditorContextValue {
 	setDraft: Dispatch<SetStateAction<TextDraft | null>>;
 	/** Confirma o rascunho de texto; com `id`, só se ainda for o rascunho atual. */
 	commitDraft: (id?: string) => void;
+	/** Aviso curto no topo do visualizador. */
+	notify: (msg: string) => void;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);
@@ -35,6 +37,17 @@ export function useEditor(): EditorContextValue {
 	if (!ctx) throw new Error("useEditor fora do EditorContext");
 	return ctx;
 }
+
+/** Ferramentas que desenham sobre a página: objetos não capturam o clique. */
+export const DRAWING_TOOLS: ReadonlySet<Tool> = new Set<Tool>([
+	"pen",
+	"highlight",
+	"whiteout",
+	"rect",
+	"ellipse",
+	"line",
+	"arrow",
+]);
 
 /** Acompanha o ponteiro na janela inteira até soltar (funciona fora do elemento). */
 export function trackPointer(

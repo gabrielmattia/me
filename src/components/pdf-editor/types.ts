@@ -13,7 +13,13 @@ export type Matrix = [number, number, number, number, number, number];
 
 export type Rotation = 0 | 90 | 180 | 270;
 
-export type FontFamily = "Helvetica" | "Times" | "Courier";
+/** Fontes padrão do PDF (não embutidas). */
+export type StandardFamily = "Helvetica" | "Times" | "Courier";
+
+/** Fontes extras: TTF embutido no PDF (subset), carregado sob demanda. */
+export type ExtraFamily = "Roboto" | "OpenSans" | "Montserrat" | "Lora";
+
+export type FontFamily = StandardFamily | ExtraFamily;
 
 export type TextAlign = "left" | "center" | "right";
 
@@ -67,6 +73,12 @@ export interface TextObject extends BoxBase {
 	bold: boolean;
 	italic: boolean;
 	align?: TextAlign;
+	underline?: boolean;
+	/**
+	 * Largura fixa da caixa (pt): o texto quebra linha para caber. Sem ela a
+	 * caixa acompanha a linha mais longa e só há as quebras digitadas.
+	 */
+	wrapWidth?: number;
 	/** Altura da linha em múltiplos do tamanho da fonte (padrão `LINE_HEIGHT`). */
 	lineHeight?: number;
 	/**
@@ -89,6 +101,13 @@ export interface SourceText {
 	key: string;
 	text: string;
 	lines: TextLine[];
+	/** Fonte original (para voltar à opção "Fonte original do PDF"). */
+	font?: {
+		pdfFont: string;
+		fontFamily: FontFamily;
+		bold: boolean;
+		italic: boolean;
+	};
 	/** Cor inicial: enquanto não mudar, o texto novo reusa os operadores de cor originais. */
 	color: string;
 	/** Propriedades iniciais (JSON) — permite saber se o objeto ainda é idêntico ao original. */
@@ -167,6 +186,7 @@ export interface ToolDefaults {
 		color: string;
 		bold: boolean;
 		italic: boolean;
+		underline: boolean;
 		align: TextAlign;
 	};
 	shape: {

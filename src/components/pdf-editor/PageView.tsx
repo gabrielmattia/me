@@ -6,7 +6,7 @@ import {
 	useState,
 } from "react";
 import { ACCENT } from "./constants";
-import { trackPointer, useEditor } from "./editor-context";
+import { DRAWING_TOOLS, trackPointer, useEditor } from "./editor-context";
 import { baselineRatio, getPdfFont, withTextSize } from "./fonts";
 import {
 	clientToBase,
@@ -43,6 +43,13 @@ type Preview =
 
 const MAX_CANVAS_PIXELS = 16_000_000;
 
+/** Duplo toque/clique: mesmo alvo, perto no tempo e no espaço. */
+const DOUBLE_TAP_MS = 400;
+const DOUBLE_TAP_PX = 12;
+
+const NO_TEXT_NOTICE =
+	"Esta página não tem texto editável: o conteúdo é uma imagem (PDF digitalizado). Use Texto para escrever por cima ou Apagar para cobrir.";
+
 export function PageView({
 	page,
 	index,
@@ -57,17 +64,23 @@ export function PageView({
 		dispatch,
 		zoom,
 		tool,
+		setTool,
 		selectedId,
 		select,
 		defaults,
 		draft,
 		setDraft,
 		commitDraft,
+		notify,
 	} = useEditor();
 	const outerRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const [near, setNear] = useState(false);
-	const [blocks, setBlocks] = useState<TextBlock[]>([]);
+	/** Blocos de texto existentes; `null` = ainda não carregados. */
+	const [blocks, setBlocks] = useState<TextBlock[] | null>(null);
+	const lastTap = useRef<{ key: string; t: number; x: number; y: number }>(
+		null,
+	);
 	const [hoverBlock, setHoverBlock] = useState<string | null>(null);
 	const [preview, setPreview] = useState<Preview | null>(null);
 	const [strip, setStrip] = useState<{
@@ -194,8 +207,11 @@ export function PageView({
 		previewRemoved,
 	]);
 
+	// Texto existente fica editável com Selecionar (duplo clique) e com
+	// Editar texto (um clique): carrega os blocos de toda página próxima.
+	const wantsBlocks = !DRAWING_TOOLS.has(tool);
 	useEffect(() => {
-		if (tool !== "editText" || !near) return;
+		if (!wantsBlocks || !near) return;
 		let cancelled = false;
 		getTextBlocks(page)
 			.then((b) => {
@@ -205,7 +221,22 @@ export function PageView({
 		return () => {
 			cancelled = true;
 		};
-	}, [tool, near, page]);
+	}, [wantsBlocks, near, page]);
+
+	const isDoubleTap = (key: string, e: ReactPointerEvent<Element>) => {
+		const now = performance.now();
+		const last = lastTap.current;
+		const hit =
+			last !== null &&
+			last.key === key &&
+			now - last.t < DOUBLE_TAP_MS &&
+			Math.hypot(e.clientX - last.x, e.clientY - last.y) < DOUBLE_TAP_PX;
+		lastTap.current = hit ? null : { key, t: now, x: e.clientX, y: e.clientY };
+		return hit;
+	};
+
+	const noEditableText =
+		Boolean(page.source) && blocks !== null && blocks.length === 0;
 
 	const toBase = (clientX: number, clientY: number) => {
 		const el = outerRef.current;
@@ -241,6 +272,9 @@ export function PageView({
 			rotation,
 			...placeLocalTopLeft(obj.w, obj.h, rotation, bx, top),
 		};
+		// Como no Google Slides/Canva/iLovePDF: criou a caixa, volta para
+		// Selecionar (o próximo clique na página não cria outra caixa).
+		setTool("select");
 		select(null);
 		setDraft({ object: obj, isNew: true });
 	};
@@ -300,6 +334,14 @@ export function PageView({
 					lines: block.lines,
 					color,
 					initial: sourceSnapshot(placed),
+					font: pdfFont
+						? {
+								pdfFont,
+								fontFamily: block.fontFamily,
+								bold: block.bold,
+								italic: block.italic,
+							}
+						: undefined,
 				},
 			};
 		};
@@ -341,6 +383,9 @@ export function PageView({
 
 		if (tool === "select" || tool === "editText") {
 			select(null);
+			const dbl = isDoubleTap("page", e);
+			if (noEditableText && (tool === "editText" || dbl))
+				notify(NO_TEXT_NOTICE);
 			return;
 		}
 		e.preventDefault();
@@ -466,27 +511,75 @@ export function PageView({
 
 	// ── Interação com objetos existentes ─────────────────────────────────
 
-	const startMove = (e: ReactPointerEvent<Element>, obj: EditorObject) => {
+	/**
+	 * Arraste genérico: `apply` recebe o deslocamento (espaço base) desde o
+	 * início. Só começa depois de `threshold` px — clique sem mover não altera
+	 * nada (nem histórico).
+	 */
+	const drag = (
+		e: ReactPointerEvent<Element>,
+		threshold: number,
+		onStart: () => void,
+		apply: (dx: number, dy: number, ev: PointerEvent) => void,
+	) => {
 		const startX = e.clientX;
 		const startY = e.clientY;
-		let moved = false;
+		let started = false;
 		trackPointer(
 			(ev) => {
 				const sdx = ev.clientX - startX;
 				const sdy = ev.clientY - startY;
-				if (!moved) {
-					if (Math.hypot(sdx, sdy) < 3) return;
-					moved = true;
-					dispatch({ type: "checkpoint" });
+				if (!started) {
+					if (Math.hypot(sdx, sdy) < threshold) return;
+					started = true;
+					onStart();
 				}
 				const [dx, dy] = screenDeltaToBase(sdx, sdy, page, zoom);
-				dispatch({
-					type: "replaceObject",
-					object: translateObject(obj, dx, dy),
-					record: false,
-				});
+				apply(dx, dy, ev);
 			},
 			() => {},
+		);
+	};
+
+	/** Objeto do documento: um checkpoint por gesto, passos intermediários fora do histórico. */
+	const dragDocObject = (
+		e: ReactPointerEvent<Element>,
+		threshold: number,
+		next: (dx: number, dy: number, ev: PointerEvent) => EditorObject | null,
+	) =>
+		drag(
+			e,
+			threshold,
+			() => dispatch({ type: "checkpoint" }),
+			(dx, dy, ev) => {
+				const object = next(dx, dy, ev);
+				if (object) dispatch({ type: "replaceObject", object, record: false });
+			},
+		);
+
+	/** Texto em edição: altera só o rascunho (vira uma entrada ao confirmar). */
+	const dragDraft = (
+		e: ReactPointerEvent<Element>,
+		threshold: number,
+		next: (
+			start: TextObject,
+			dx: number,
+			dy: number,
+			ev: PointerEvent,
+		) => TextObject,
+	) => {
+		const start = draft?.object;
+		if (!start) return;
+		drag(
+			e,
+			threshold,
+			() => {},
+			(dx, dy, ev) =>
+				setDraft((d) =>
+					d && d.object.id === start.id
+						? { ...d, object: next(start, dx, dy, ev) }
+						: d,
+				),
 		);
 	};
 
@@ -494,26 +587,18 @@ export function PageView({
 		e: ReactPointerEvent<Element>,
 		obj: EditorObject,
 	) => {
-		if (e.button !== 0) return;
+		if (e.button !== 0 || DRAWING_TOOLS.has(tool)) return;
 		e.stopPropagation();
+		e.preventDefault();
 		if (draft && draft.object.id !== obj.id) commitDraft();
-		if (obj.type === "text" && (tool === "text" || tool === "editText")) {
-			e.preventDefault();
-			select(obj.id);
+		// Clicar num objeto com a ferramenta Texto é para mexer nele.
+		if (tool === "text") setTool("select");
+		select(obj.id);
+		if (obj.type === "text" && isDoubleTap(obj.id, e)) {
 			setDraft({ object: obj, isNew: false });
 			return;
 		}
-		if (tool !== "select") return;
-		e.preventDefault();
-		select(obj.id);
-		startMove(e, obj);
-	};
-
-	const onObjectDoubleClick = (obj: EditorObject) => {
-		if (obj.type === "text") {
-			select(obj.id);
-			setDraft({ object: obj, isNew: false });
-		}
+		dragDocObject(e, 3, (dx, dy) => translateObject(obj, dx, dy));
 	};
 
 	const onHandleDown = (
@@ -524,77 +609,56 @@ export function PageView({
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
-		const startX = e.clientX;
-		const startY = e.clientY;
-		let started = false;
-		trackPointer(
-			(ev) => {
-				if (!started) {
-					started = true;
-					dispatch({ type: "checkpoint" });
-				}
-				const [dx, dy] = screenDeltaToBase(
-					ev.clientX - startX,
-					ev.clientY - startY,
-					page,
-					zoom,
-				);
-				let next: EditorObject;
-				if (obj.type === "line") {
-					if (handle === "p1") {
-						const [x, y] = snapAngle(
-							obj.x2,
-							obj.y2,
-							[obj.x1 + dx, obj.y1 + dy],
-							ev.shiftKey,
-						);
-						next = { ...obj, x1: x, y1: y };
-					} else {
-						const [x, y] = snapAngle(
-							obj.x1,
-							obj.y1,
-							[obj.x2 + dx, obj.y2 + dy],
-							ev.shiftKey,
-						);
-						next = { ...obj, x2: x, y2: y };
-					}
-				} else if (handle === "p1" || handle === "p2") {
-					return;
-				} else {
-					const lock =
-						obj.type === "text" ||
-						(obj.type === "image" ? !ev.shiftKey : ev.shiftKey);
-					const box = resizeBox(
-						obj,
-						handle,
-						dx,
-						dy,
-						lock,
-						obj.type === "text" ? 2 : 4,
-					);
-					next =
-						obj.type === "text"
-							? {
-									...obj,
-									...box,
-									fontSize: Math.max(
-										2,
-										Math.round(obj.fontSize * (box.w / obj.w) * 10) / 10,
-									),
-								}
-							: { ...obj, ...box };
-				}
-				dispatch({ type: "replaceObject", object: next, record: false });
-			},
-			() => {},
+		dragDocObject(e, 1, (dx, dy, ev) =>
+			resizeObject(obj, handle, dx, dy, ev.shiftKey),
 		);
+	};
+
+	const onDraftMoveDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+		if (e.button !== 0) return;
+		// preventDefault mantém o foco no textarea: continua digitando depois.
+		e.stopPropagation();
+		e.preventDefault();
+		dragDraft(e, 1, (start, dx, dy) => translateObject(start, dx, dy));
+	};
+
+	const onDraftHandleDown = (
+		e: ReactPointerEvent<HTMLDivElement>,
+		handle: Handle | "p1" | "p2",
+	) => {
+		if (e.button !== 0) return;
+		e.stopPropagation();
+		e.preventDefault();
+		dragDraft(e, 1, (start, dx, dy, ev) => {
+			const next = resizeObject(start, handle, dx, dy, ev.shiftKey);
+			return next?.type === "text" ? next : start;
+		});
+	};
+
+	const onBlockPointerDown = (
+		e: ReactPointerEvent<HTMLButtonElement>,
+		b: TextBlock,
+	) => {
+		if (e.button !== 0) return;
+		e.stopPropagation();
+		if (tool === "editText") {
+			e.preventDefault();
+			startBlockEdit(b);
+			return;
+		}
+		// Selecionar: um clique é clique na página; duplo clique edita.
+		if (draft) commitDraft();
+		select(null);
+		if (isDoubleTap(b.key, e)) {
+			e.preventDefault();
+			startBlockEdit(b);
+		}
 	};
 
 	// ── Render ────────────────────────────────────────────────────────────
 
-	const objectsInteractive = (obj: EditorObject) =>
-		tool === "select" ||
-		(obj.type === "text" && (tool === "text" || tool === "editText"));
+	const objectsInteractive = !DRAWING_TOOLS.has(tool);
+	const showBlocks = tool === "editText" || tool === "select";
 
 	const replacedBlocks = new Set(sourceRefs.map((r) => r.key));
 
@@ -667,35 +731,19 @@ export function PageView({
 						) : null,
 					)}
 
-					{objects.map((obj) =>
-						pageDraft &&
-						!pageDraft.isNew &&
-						pageDraft.object.id === obj.id ? null : (
-							<ObjectView
-								key={obj.id}
-								obj={obj}
-								page={page}
-								zoom={zoom}
-								interactive={objectsInteractive(obj)}
-								onPointerDown={onObjectPointerDown}
-								onDoubleClick={onObjectDoubleClick}
-							/>
-						),
-					)}
-
-					{tool === "editText" &&
+					{showBlocks &&
 						blocks
-							.filter((b) => !replacedBlocks.has(b.key))
+							?.filter((b) => !replacedBlocks.has(b.key))
 							.map((b) => (
 								<button
 									key={b.key}
 									type="button"
-									title="Clique para editar este texto"
-									onPointerDown={(e) => {
-										e.stopPropagation();
-										e.preventDefault();
-										startBlockEdit(b);
-									}}
+									title={
+										tool === "editText"
+											? "Clique para editar este texto"
+											: "Duplo clique para editar este texto"
+									}
+									onPointerDown={(e) => onBlockPointerDown(e, b)}
 									onMouseEnter={() => setHoverBlock(b.key)}
 									onMouseLeave={() => setHoverBlock(null)}
 									style={{
@@ -705,19 +753,40 @@ export function PageView({
 										width: b.w * zoom + 2,
 										height: b.h * zoom + 2,
 										cursor: "text",
+										touchAction:
+											tool === "select" ? "pan-y pinch-zoom" : "none",
 										// Nada visível por padrão: só indica o bloco no hover.
 										background:
 											hoverBlock === b.key
-												? "rgba(37,99,235,0.08)"
+												? tool === "editText"
+													? "rgba(37,99,235,0.08)"
+													: "rgba(37,99,235,0.04)"
 												: "transparent",
 										outline:
-											hoverBlock === b.key ? `1.5px solid ${ACCENT}` : "none",
+											hoverBlock === b.key
+												? `1.5px ${tool === "editText" ? "solid" : "dashed"} ${ACCENT}`
+												: "none",
 										borderRadius: 2,
 										padding: 0,
 										border: 0,
 									}}
 								/>
 							))}
+
+					{objects.map((obj) =>
+						pageDraft &&
+						!pageDraft.isNew &&
+						pageDraft.object.id === obj.id ? null : (
+							<ObjectView
+								key={obj.id}
+								obj={obj}
+								page={page}
+								zoom={zoom}
+								interactive={objectsInteractive}
+								onPointerDown={onObjectPointerDown}
+							/>
+						),
+					)}
 
 					{preview?.kind === "box" && (
 						<div
@@ -792,11 +861,25 @@ export function PageView({
 					)}
 
 					{pageDraft && (
+						<SelectionFrame
+							obj={pageDraft.object}
+							zoom={zoom}
+							onHandleDown={onDraftHandleDown}
+							onMoveDown={onDraftMoveDown}
+						/>
+					)}
+
+					{tool === "editText" && noEditableText && (
+						<div className="pointer-events-none absolute inset-x-3 top-3 select-none rounded-md border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm">
+							{NO_TEXT_NOTICE}
+						</div>
+					)}
+
+					{pageDraft && (
 						<TextDraftEditor
 							key={pageDraft.object.id}
 							obj={pageDraft.object}
 							zoom={zoom}
-							selectAll={!pageDraft.isNew}
 							onChange={(content) =>
 								setDraft((d) =>
 									d
@@ -811,6 +894,58 @@ export function PageView({
 			</div>
 		</div>
 	);
+}
+
+/** Resultado de arrastar uma alça (`null` = alça não se aplica ao objeto). */
+function resizeObject(
+	obj: EditorObject,
+	handle: Handle | "p1" | "p2",
+	dx: number,
+	dy: number,
+	shift: boolean,
+): EditorObject | null {
+	if (obj.type === "line") {
+		if (handle === "p1") {
+			const [x, y] = snapAngle(
+				obj.x2,
+				obj.y2,
+				[obj.x1 + dx, obj.y1 + dy],
+				shift,
+			);
+			return { ...obj, x1: x, y1: y };
+		}
+		if (handle === "p2") {
+			const [x, y] = snapAngle(
+				obj.x1,
+				obj.y1,
+				[obj.x2 + dx, obj.y2 + dy],
+				shift,
+			);
+			return { ...obj, x2: x, y2: y };
+		}
+		return null;
+	}
+	if (handle === "p1" || handle === "p2") return null;
+	if (obj.type === "text") {
+		if (handle === "e" || handle === "w") {
+			// Lateral: largura fixa, o texto quebra linha e a altura acompanha.
+			const box = resizeBox(obj, handle, dx, dy, false, obj.fontSize);
+			return withTextSize({ ...obj, ...box, wrapWidth: box.w });
+		}
+		// Canto: escala o texto inteiro (fonte e largura de quebra).
+		const box = resizeBox(obj, handle, dx, dy, true, 2);
+		return {
+			...obj,
+			...box,
+			fontSize: Math.max(
+				2,
+				Math.round(obj.fontSize * (box.w / obj.w) * 10) / 10,
+			),
+			wrapWidth: obj.wrapWidth ? box.w : undefined,
+		};
+	}
+	const lock = obj.type === "image" ? !shift : shift;
+	return { ...obj, ...resizeBox(obj, handle, dx, dy, lock, 4) };
 }
 
 function snapAngle(

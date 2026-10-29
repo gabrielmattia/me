@@ -16,7 +16,8 @@ import {
 	type EditorContextValue,
 	type TextDraft,
 } from "./editor-context";
-import { withTextSize } from "./fonts";
+import { FloatingTextBar } from "./FloatingTextBar";
+import { ensureFont, withTextSize } from "./fonts";
 import {
 	clamp,
 	clientToBase,
@@ -43,7 +44,13 @@ import {
 } from "./state";
 import { useEditorTheme } from "./ThemeToggle";
 import { Toolbar } from "./Toolbar";
-import type { EditorObject, ImageObject, Tool, ToolDefaults } from "./types";
+import type {
+	EditorObject,
+	ImageObject,
+	TextObject,
+	Tool,
+	ToolDefaults,
+} from "./types";
 import { UploadScreen } from "./UploadScreen";
 
 const DEFAULT_KEY: Partial<Record<EditorObject["type"], keyof ToolDefaults>> = {
@@ -114,9 +121,10 @@ export function PdfEditor() {
 			const o = d.object;
 			const empty = !o.content.trim();
 			if (d.isNew) {
-				// Texto existente só vira edição se o conteúdo final for diferente.
+				// Texto existente só vira edição se algo mudou (conteúdo, posição,
+				// tamanho, estilo); texto novo vazio é descartado.
 				if (o.source) {
-					if (o.content === o.source.text) return;
+					if (isUnchangedSourceEdit(o)) return;
 				} else if (empty) return;
 				dispatch({ type: "addObject", object: o });
 				setSelectedId(o.id);
@@ -133,8 +141,9 @@ export function PdfEditor() {
 				setSelectedId(null);
 				return;
 			}
+			// Conteúdo, posição e estilo alterados durante a edição: uma entrada só.
 			const current = history.present.objects.find((x) => x.id === o.id);
-			if (current && current.type === "text" && current.content !== o.content) {
+			if (current && JSON.stringify(current) !== JSON.stringify(o)) {
 				dispatch({ type: "replaceObject", object: o });
 			}
 		},
@@ -350,20 +359,30 @@ export function PdfEditor() {
 		[insertImage, showNotice],
 	);
 
+	/**
+	 * Aplica `patch` ao objeto selecionado. Com `field`, alterações seguidas do
+	 * mesmo campo viram um passo de undo (slider, digitação); sem, cada uma é
+	 * um passo.
+	 */
 	const updateSelected = useCallback(
-		(patch: Record<string, unknown>, field: string) => {
+		async (patch: Record<string, unknown>, field?: string) => {
 			if (!selected) return;
 			let next = { ...selected, ...patch } as EditorObject;
 			if (next.type === "text") {
 				// Trocar a fonte abandona a fonte embutida do PDF.
-				if ("fontFamily" in patch || "bold" in patch || "italic" in patch)
+				if (
+					("fontFamily" in patch || "bold" in patch || "italic" in patch) &&
+					!("pdfFont" in patch)
+				)
 					next.pdfFont = undefined;
+				// Fonte extra: mede só depois de carregada (senão mede o fallback).
+				await ensureFont(next).catch(() => {});
 				next = withTextSize(next);
 			}
 			dispatch({
 				type: "replaceObject",
 				object: next,
-				coalesce: `${selected.id}:${field}`,
+				coalesce: field ? `${selected.id}:${field}` : undefined,
 			});
 			const key = DEFAULT_KEY[selected.type];
 			if (key) {
@@ -378,16 +397,45 @@ export function PdfEditor() {
 		[selected],
 	);
 
+	/** Barra flutuante: aplica no rascunho (se editando) ou no objeto selecionado. */
+	const applyTextPatch = useCallback(
+		async (patch: Partial<TextObject>, field?: string) => {
+			const d = draftRef.current;
+			if (!d) {
+				await updateSelected(patch, field);
+				return;
+			}
+			const id = d.object.id;
+			const fontChange =
+				("fontFamily" in patch || "bold" in patch || "italic" in patch) &&
+				!("pdfFont" in patch);
+			const probe = { ...d.object, ...patch };
+			await ensureFont(probe).catch(() => {});
+			setDraft((cur) => {
+				if (!cur || cur.object.id !== id) return cur;
+				const next: TextObject = { ...cur.object, ...patch };
+				if (fontChange) next.pdfFont = undefined;
+				return { ...cur, object: withTextSize(next) };
+			});
+			setDefaults((def) => {
+				const section = { ...def.text } as Record<string, unknown>;
+				for (const [k, v] of Object.entries(patch))
+					if (k in section) section[k] = v;
+				return { ...def, text: section as ToolDefaults["text"] };
+			});
+		},
+		[updateSelected, setDraft],
+	);
+
 	const removeSelected = useCallback(() => {
 		if (!selected) return;
 		dispatch({ type: "removeObject", id: selected.id });
 		setSelectedId(null);
 	}, [selected]);
 
-	const duplicateSelected = useCallback(() => {
-		if (!selected) return;
+	const duplicateObject = useCallback((obj: EditorObject) => {
 		const copy = {
-			...translateObject(selected, 12, 12),
+			...translateObject(obj, 12, 12),
 			id: uid(),
 		} as EditorObject;
 		if (copy.type === "text") {
@@ -397,7 +445,12 @@ export function PdfEditor() {
 		}
 		dispatch({ type: "addObject", object: copy });
 		setSelectedId(copy.id);
-	}, [selected]);
+	}, []);
+
+	const duplicateSelected = useCallback(() => {
+		if (!selected) return;
+		duplicateObject(selected);
+	}, [selected, duplicateObject]);
 
 	const rotateSelected = useCallback(() => {
 		if (!selected || selected.type === "line") return;
@@ -487,6 +540,11 @@ export function PdfEditor() {
 				return;
 			}
 			if (mod || e.altKey) return;
+			if (e.key === "Enter" && selected?.type === "text") {
+				e.preventDefault();
+				setDraft({ object: selected, isNew: false });
+				return;
+			}
 			if ((e.key === "Delete" || e.key === "Backspace") && selected) {
 				e.preventDefault();
 				removeSelected();
@@ -564,6 +622,7 @@ export function PdfEditor() {
 		draft,
 		setDraft,
 		commitDraft,
+		notify: showNotice,
 	};
 
 	if (status !== "ready") {
@@ -611,9 +670,14 @@ export function PdfEditor() {
 			tool={tool}
 			defaults={defaults}
 			onObjectChange={updateSelected}
-			onDefaultsChange={(key, patch) =>
-				setDefaults((d) => ({ ...d, [key]: { ...d[key], ...patch } }))
-			}
+			onDefaultsChange={(key, patch) => {
+				setDefaults((d) => {
+					const next = { ...d, [key]: { ...d[key], ...patch } };
+					// Pré-carrega a fonte extra escolhida para o próximo texto.
+					if (key === "text") ensureFont(next.text).catch(() => {});
+					return next;
+				});
+			}}
 			onDelete={removeSelected}
 			onDuplicate={duplicateSelected}
 			onReorder={(to) =>
@@ -746,6 +810,36 @@ export function PdfEditor() {
 							</div>
 						</div>
 
+						<FloatingTextBar
+							viewer={viewer}
+							target={
+								draft?.object ?? (selected?.type === "text" ? selected : null)
+							}
+							editing={Boolean(draft)}
+							onApply={applyTextPatch}
+							onDuplicate={(t) => {
+								commitDraft();
+								duplicateObject(t);
+							}}
+							onDelete={(t) => {
+								const inDoc = doc.objects.some((o) => o.id === t.id);
+								setDraft(null);
+								setSelectedId(null);
+								if (t.source) {
+									// Texto do PDF: excluir = substituir por vazio (o original
+									// sai do content stream; desfazer traz de volta).
+									const object = withTextSize({ ...t, content: "" });
+									dispatch(
+										inDoc
+											? { type: "replaceObject", object }
+											: { type: "addObject", object },
+									);
+								} else if (inDoc) {
+									dispatch({ type: "removeObject", id: t.id });
+								}
+							}}
+						/>
+
 						{notice && (
 							<output className="absolute top-3 left-1/2 z-20 max-w-[90%] -translate-x-1/2 rounded-lg border bg-background px-4 py-2 text-sm shadow-lg">
 								{notice}
@@ -756,7 +850,8 @@ export function PdfEditor() {
 					<aside className="hidden w-72 shrink-0 border-l bg-background lg:block">
 						{propertiesPanel()}
 					</aside>
-					{(propsOpen || (selected && !draft)) && (
+					{/* No celular, texto usa a barra flutuante; o painel abre pelo botão. */}
+					{(propsOpen || (selected && !draft && selected.type !== "text")) && (
 						<aside
 							className={cn(
 								"absolute inset-x-0 bottom-0 z-40 max-h-[50%] overflow-hidden rounded-t-2xl border-t bg-background shadow-2xl lg:hidden",

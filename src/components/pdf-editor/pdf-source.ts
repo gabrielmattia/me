@@ -8,9 +8,9 @@ import {
 import { multiply } from "./geometry";
 import { uid } from "./state";
 import type {
-	FontFamily,
 	Matrix,
 	PageModel,
+	StandardFamily,
 	TextBlock,
 	TextLine,
 } from "./types";
@@ -165,6 +165,23 @@ interface FontData {
 	defaultWidth?: number;
 }
 
+/** Espera a fonte ficar disponível em commonObjs (com limite de tempo). */
+function fontReady(page: PDFPageProxy, fontName: string): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = window.setTimeout(resolve, 3000);
+		const done = () => {
+			window.clearTimeout(timer);
+			resolve();
+		};
+		try {
+			if (page.commonObjs.has(fontName)) return done();
+			page.commonObjs.get(fontName, done);
+		} catch {
+			done();
+		}
+	});
+}
+
 function fontData(page: PDFPageProxy, fontName: string): FontData {
 	try {
 		if (page.commonObjs.has(fontName)) {
@@ -190,7 +207,7 @@ function isIdentityCMap(cm: FontData["cMap"]): boolean {
 }
 
 /** Registra a fonte embutida para reutilização, se o pdfjs a carregou como fonte de verdade. */
-function registerFont(font: FontData, family: FontFamily) {
+function registerFont(font: FontData, family: StandardFamily) {
 	const name = font.loadedName;
 	if (!name || getPdfFont(name)) return;
 	if (font.missingFile || font.isType3Font || font.vertical) return;
@@ -360,6 +377,13 @@ export function getTextBlocks(page: PageModel): Promise<TextBlock[]> {
 		await pdfPage.getOperatorList();
 		const content = await pdfPage.getTextContent();
 		const lines = extractLines(content, page.viewTransform);
+		// O pdfjs só publica a fonte em commonObjs depois de carregá-la no
+		// navegador (FontFace), o que pode terminar depois da operator list.
+		await Promise.all(
+			[...new Set(lines.map((l) => l.fontName))].map((n) =>
+				fontReady(pdfPage, n),
+			),
+		);
 		return groupParagraphs(lines).map((group, n): TextBlock => {
 			const first = group[0];
 			const font = fontData(pdfPage, first.fontName);

@@ -57,6 +57,9 @@ export function sourceSnapshot(t: TextObject): string {
 		t.italic,
 		t.align ?? "left",
 		t.pdfFont ?? null,
+		t.lineHeight ?? null,
+		t.wrapWidth ?? null,
+		t.underline ?? false,
 	]);
 }
 

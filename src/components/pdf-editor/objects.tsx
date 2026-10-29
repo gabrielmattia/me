@@ -5,7 +5,7 @@ import {
 	useRef,
 } from "react";
 import { ACCENT } from "./constants";
-import { lineHeightOf, textFont } from "./fonts";
+import { lineHeightOf, textFont, textLines, underlineRects } from "./fonts";
 import {
 	ALL_HANDLES,
 	arrowHeadPath,
@@ -13,6 +13,7 @@ import {
 	CORNER_HANDLES,
 	type Handle,
 	handleCursor,
+	TEXT_HANDLES,
 } from "./geometry";
 import type {
 	BoxObject,
@@ -109,20 +110,42 @@ export function LineSvg({
 	);
 }
 
+/** Sublinhado desenhado com a mesma geometria da exportação. */
+function Underlines({ t, zoom }: { t: TextObject; zoom: number }) {
+	if (!t.underline) return null;
+	return (
+		<>
+			{underlineRects(t).map((r, i) => (
+				<span
+					// biome-ignore lint/suspicious/noArrayIndexKey: uma faixa por linha, na ordem
+					key={i}
+					style={{
+						position: "absolute",
+						left: r.x * zoom,
+						top: r.y * zoom,
+						width: r.w * zoom,
+						height: Math.max(1, r.h * zoom),
+						background: t.color,
+						pointerEvents: "none",
+					}}
+				/>
+			))}
+		</>
+	);
+}
+
 export function ObjectView({
 	obj,
 	page,
 	zoom,
 	interactive,
 	onPointerDown,
-	onDoubleClick,
 }: {
 	obj: EditorObject;
 	page: PageModel;
 	zoom: number;
 	interactive: boolean;
 	onPointerDown: (e: PointerEvent<Element>, obj: EditorObject) => void;
-	onDoubleClick: (obj: EditorObject) => void;
 }) {
 	if (obj.type === "line") {
 		return (
@@ -140,19 +163,20 @@ export function ObjectView({
 		...boxStyle(obj, zoom),
 		opacity: obj.opacity,
 		pointerEvents: interactive ? "auto" : "none",
-		cursor: interactive ? (obj.type === "text" ? "text" : "move") : undefined,
+		cursor: interactive ? "move" : undefined,
 		touchAction: "none",
 	};
 	const handlers = {
+		"data-object-id": obj.id,
 		onPointerDown: (e: PointerEvent<HTMLDivElement>) => onPointerDown(e, obj),
-		onDoubleClick: () => onDoubleClick(obj),
 	};
 
 	switch (obj.type) {
 		case "text":
 			return (
 				<div {...handlers} style={{ ...style, ...textStyle(obj, zoom) }}>
-					{obj.content}
+					{textLines(obj).join("\n")}
+					<Underlines t={obj} zoom={zoom} />
 				</div>
 			);
 		case "whiteout":
@@ -244,11 +268,22 @@ export function ObjectView({
 }
 
 const HANDLE_SIZE = 10;
+/** Área de toque das alças (maior que o desenho, para dedo). */
+const HANDLE_HIT = 22;
+/** Espessura da borda de arrastar ao redor da caixa em edição. */
+const MOVE_BORDER = 10;
+/**
+ * Caixa baixa na tela (texto pequeno): alças laterais se sobreporiam às de
+ * canto e ao próprio texto — ficam só os cantos, com área de toque menor.
+ */
+const SMALL_BOX = 24;
+const HANDLE_HIT_SMALL = 14;
 
 export function SelectionFrame({
 	obj,
 	zoom,
 	onHandleDown,
+	onMoveDown,
 }: {
 	obj: EditorObject;
 	zoom: number;
@@ -256,21 +291,37 @@ export function SelectionFrame({
 		e: PointerEvent<HTMLDivElement>,
 		handle: Handle | "p1" | "p2",
 	) => void;
+	/** Presente = mostra uma borda que move a caixa (texto em edição). */
+	onMoveDown?: (e: PointerEvent<HTMLDivElement>) => void;
 }) {
+	const small = obj.type !== "line" && obj.h * zoom < SMALL_BOX;
+	const hit = small ? HANDLE_HIT_SMALL : HANDLE_HIT;
 	const handleStyle = (cursor: string): CSSProperties => ({
 		position: "absolute",
-		width: HANDLE_SIZE,
-		height: HANDLE_SIZE,
-		marginLeft: -HANDLE_SIZE / 2,
-		marginTop: -HANDLE_SIZE / 2,
-		background: "#fff",
-		border: `2px solid ${ACCENT}`,
-		borderRadius: 3,
+		width: hit,
+		height: hit,
+		marginLeft: -hit / 2,
+		marginTop: -hit / 2,
+		display: "grid",
+		placeItems: "center",
 		cursor,
 		pointerEvents: "auto",
 		touchAction: "none",
-		boxSizing: "border-box",
+		zIndex: 2,
 	});
+	const dot = (round: boolean) => (
+		<span
+			style={{
+				width: HANDLE_SIZE,
+				height: HANDLE_SIZE,
+				background: "#fff",
+				border: `2px solid ${ACCENT}`,
+				borderRadius: round ? "50%" : 3,
+				boxSizing: "border-box",
+				pointerEvents: "none",
+			}}
+		/>
+	);
 
 	if (obj.type === "line") {
 		return (
@@ -282,19 +333,24 @@ export function SelectionFrame({
 						onPointerDown={(e) => onHandleDown(e, p)}
 						style={{
 							...handleStyle("crosshair"),
-							borderRadius: "50%",
 							left: (p === "p1" ? obj.x1 : obj.x2) * zoom,
 							top: (p === "p1" ? obj.y1 : obj.y2) * zoom,
 							zIndex: 30,
 						}}
-					/>
+					>
+						{dot(true)}
+					</div>
 				))}
 			</>
 		);
 	}
 
 	const handles =
-		obj.type === "text" || obj.type === "image" ? CORNER_HANDLES : ALL_HANDLES;
+		obj.type === "image" || small
+			? CORNER_HANDLES
+			: obj.type === "text"
+				? TEXT_HANDLES
+				: ALL_HANDLES;
 	const pos: Record<Handle, [number, number]> = {
 		nw: [0, 0],
 		n: [0.5, 0],
@@ -305,16 +361,41 @@ export function SelectionFrame({
 		sw: [0, 1],
 		w: [0, 0.5],
 	};
+	const b = MOVE_BORDER;
+	const strips: CSSProperties[] = [
+		{ left: -b, top: -b, right: -b, height: b },
+		{ left: -b, bottom: -b, right: -b, height: b },
+		{ left: -b, top: 0, bottom: 0, width: b },
+		{ right: -b, top: 0, bottom: 0, width: b },
+	];
 	return (
 		<div
+			data-object-frame={obj.id}
 			style={{
 				...boxStyle(obj, zoom),
-				outline: `1.5px solid ${ACCENT}`,
+				outline: `1.5px ${onMoveDown ? "dashed" : "solid"} ${ACCENT}`,
 				outlineOffset: 2,
 				pointerEvents: "none",
-				zIndex: 30,
+				zIndex: 45,
 			}}
 		>
+			{onMoveDown &&
+				strips.map((st, i) => (
+					<div
+						// biome-ignore lint/suspicious/noArrayIndexKey: quatro bordas fixas
+						key={i}
+						role="presentation"
+						title="Arraste para mover"
+						onPointerDown={onMoveDown}
+						style={{
+							...st,
+							position: "absolute",
+							cursor: "move",
+							pointerEvents: "auto",
+							touchAction: "none",
+						}}
+					/>
+				))}
 			{handles.map((h) => (
 				<div
 					key={h}
@@ -325,7 +406,9 @@ export function SelectionFrame({
 						left: `${pos[h][0] * 100}%`,
 						top: `${pos[h][1] * 100}%`,
 					}}
-				/>
+				>
+					{dot(false)}
+				</div>
 			))}
 		</div>
 	);
@@ -334,18 +417,15 @@ export function SelectionFrame({
 export function TextDraftEditor({
 	obj,
 	zoom,
-	selectAll,
 	onChange,
 	onCommit,
 }: {
 	obj: TextObject;
 	zoom: number;
-	selectAll: boolean;
 	onChange: (content: string) => void;
 	onCommit: () => void;
 }) {
 	const ref = useRef<HTMLTextAreaElement>(null);
-	const selectAllRef = useRef(selectAll);
 
 	useEffect(() => {
 		const el = ref.current;
@@ -353,21 +433,22 @@ export function TextDraftEditor({
 		// Espera o layout (o textarea nasce durante o pointerdown).
 		const t = window.setTimeout(() => {
 			el.focus({ preventScroll: true });
-			if (selectAllRef.current) el.select();
-			else el.setSelectionRange(el.value.length, el.value.length);
+			el.setSelectionRange(el.value.length, el.value.length);
 		}, 0);
 		return () => window.clearTimeout(t);
 	}, []);
 
 	// Folga para o próximo caractere não quebrar o layout antes da remedição.
-	const extra = obj.fontSize;
+	// Com largura fixa o textarea quebra linha igual à caixa (sem folga).
+	const wrap = Boolean(obj.wrapWidth);
+	const extra = wrap ? 0 : obj.fontSize;
 	const shift =
 		obj.align === "right" ? extra : obj.align === "center" ? extra / 2 : 0;
 	return (
 		<textarea
 			ref={ref}
 			value={obj.content}
-			wrap="off"
+			wrap={wrap ? "soft" : "off"}
 			spellCheck={false}
 			aria-label="Editar texto"
 			onChange={(e) => onChange(e.target.value)}
@@ -385,6 +466,9 @@ export function TextDraftEditor({
 			}}
 			style={{
 				...textStyle(obj, zoom),
+				whiteSpace: wrap ? "pre-wrap" : "pre",
+				overflowWrap: wrap ? "anywhere" : undefined,
+				textDecoration: obj.underline ? "underline" : undefined,
 				position: "absolute",
 				left: (obj.x - shift) * zoom,
 				top: obj.y * zoom,
@@ -395,8 +479,7 @@ export function TextDraftEditor({
 				padding: 0,
 				margin: 0,
 				border: 0,
-				outline: `1.5px dashed ${ACCENT}`,
-				outlineOffset: 2,
+				outline: "none",
 				background: "transparent",
 				resize: "none",
 				overflow: "hidden",

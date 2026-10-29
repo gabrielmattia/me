@@ -23,11 +23,15 @@ import {
 import {
 	baselineRatio,
 	embeddedFont,
+	extraFontBytes,
 	fallbackSpaceEm,
 	getPdfFont,
+	isExtraFamily,
 	lineHeightOf,
-	measureLines,
+	lineOffsets,
 	pdfFontHasGlyph,
+	textLines,
+	underlineRects,
 } from "./fonts";
 import { arrowHeadPath, arrowShaftEnd, chain, invert } from "./geometry";
 import {
@@ -47,9 +51,9 @@ import type {
 	BoxObject,
 	DocState,
 	EditorObject,
-	FontFamily,
 	Matrix,
 	PageModel,
+	StandardFamily,
 	TextObject,
 } from "./types";
 
@@ -67,7 +71,7 @@ function color(hex: string) {
 }
 
 const FONT_VARIANTS: Record<
-	FontFamily,
+	StandardFamily,
 	[StandardFonts, StandardFonts, StandardFonts, StandardFonts]
 > = {
 	Helvetica: [
@@ -128,24 +132,11 @@ function withMatrix(page: PDFPage, m: Matrix, draw: () => void) {
 
 /** Fontes padrão usam WinAnsi (cobre os acentos do português): o resto vira "?". */
 function sanitize(text: string, font: PDFFont): string {
+	// Padrão: codificação WinAnsi; TTF (fontkit): mapa de caracteres da fonte.
+	const charset = new Set(font.getCharacterSet());
 	let out = "";
-	for (const ch of text) {
-		try {
-			font.encodeText(ch);
-			out += ch;
-		} catch {
-			out += "?";
-		}
-	}
+	for (const ch of text) out += charset.has(ch.codePointAt(0) ?? -1) ? ch : "?";
 	return out;
-}
-
-/** Deslocamento x de cada linha conforme o alinhamento (mesma medida da tela). */
-function lineOffsets(t: TextObject): number[] {
-	const widths = measureLines(t);
-	return widths.map((w) =>
-		t.align === "right" ? t.w - w : t.align === "center" ? (t.w - w) / 2 : 0,
-	);
 }
 
 /**
@@ -258,14 +249,25 @@ export async function exportPdf(doc: DocState): Promise<Uint8Array> {
 	if (order(finalPages) !== order(originals)) rebuildPageTree(base, finalPages);
 
 	// 2. Rotação e objetos de cada página.
-	const fonts = new Map<StandardFonts, PDFFont>();
+	const fonts = new Map<string, PDFFont>();
 	const images = new Map<string, PDFImage>();
 	const getFont = async (t: TextObject) => {
-		const name =
-			FONT_VARIANTS[t.fontFamily][(t.bold ? 1 : 0) + (t.italic ? 2 : 0)];
+		const variant = (t.bold ? 1 : 0) + (t.italic ? 2 : 0);
+		const family = t.fontFamily;
+		const name = isExtraFamily(family)
+			? `${family}:${variant}`
+			: FONT_VARIANTS[family][variant];
 		let f = fonts.get(name);
 		if (!f) {
-			f = await base.embedFont(name);
+			if (isExtraFamily(family)) {
+				// Mesmo TTF da tela, só com os glifos usados (subset).
+				const { default: fontkit } = await import("@pdf-lib/fontkit");
+				base.registerFontkit(fontkit);
+				const bytes = await extraFontBytes(family, t.bold, t.italic);
+				f = await base.embedFont(bytes, { subset: true });
+			} else {
+				f = await base.embedFont(name as StandardFonts);
+			}
 			fonts.set(name, f);
 		}
 		return f;
@@ -392,7 +394,7 @@ async function drawEmbeddedText(
 		return arr;
 	};
 
-	const lines = t.content.split("\n");
+	const lines = textLines(t);
 	const offsets = lineOffsets(t);
 	const lh = lineHeightOf(t) * t.fontSize;
 	const first = t.h - baselineRatio(t) * t.fontSize;
@@ -460,6 +462,24 @@ async function drawEmbeddedText(
 	return true;
 }
 
+/** Sublinhado: retângulos com a mesma geometria desenhada na tela. */
+function drawUnderline(page: PDFPage, model: PageModel, t: TextObject) {
+	if (!t.underline) return;
+	const rects = underlineRects(t);
+	withMatrix(page, boxMatrix(t, model), () => {
+		for (const r of rects) {
+			page.drawRectangle({
+				x: r.x,
+				y: t.h - r.y - r.h,
+				width: r.w,
+				height: r.h,
+				color: color(t.color),
+				opacity: t.opacity,
+			});
+		}
+	});
+}
+
 async function drawObject(
 	doc: PDFDocument,
 	page: PDFPage,
@@ -499,12 +519,14 @@ async function drawObject(
 
 	if (obj.type === "text") {
 		const embedded = embeddedFont(obj);
-		if (embedded && (await drawEmbeddedText(doc, page, model, obj, embedded)))
+		if (embedded && (await drawEmbeddedText(doc, page, model, obj, embedded))) {
+			drawUnderline(page, model, obj);
 			return;
+		}
 		// Sem a fonte embutida, a posição usa as métricas da fonte padrão.
 		const t: TextObject = embedded ? { ...obj, pdfFont: undefined } : obj;
 		const font = await getFont(t);
-		const lines = t.content.split("\n");
+		const lines = textLines(t);
 		const offsets = lineOffsets(t);
 		const first = t.h - baselineRatio(t) * t.fontSize;
 		const lh = lineHeightOf(t) * t.fontSize;
@@ -521,6 +543,7 @@ async function drawObject(
 				});
 			});
 		});
+		drawUnderline(page, model, t);
 		return;
 	}
 
