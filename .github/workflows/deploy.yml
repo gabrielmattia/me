@@ -42,15 +42,32 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHCR_USER,GHCR_TOKEN,IMAGE_NAME,IMAGE_TAG
           script: |
+            set -eu
+            # pipefail só se o shell remoto suportar (bash sim; dash antigo não)
+            if (set -o pipefail) 2>/dev/null; then set -o pipefail; fi
+
+            # Remove a credencial do ghcr ao sair, com sucesso ou falha:
+            # o GITHUB_TOKEN expira no fim do job e não deve ficar gravado na VPS
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+
             # Clone o repo se não existir, senão faz git pull
             if [ ! -d ~/me/.git ]; then
               rm -rf ~/me
@@ -60,6 +77,37 @@ jobs:
             fi
 
             cd ~/me
-            docker pull ghcr.io/${{ github.repository_owner }}/portfolio:latest
-            docker compose -f docker-compose.prod.yml up -d --force-recreate
+
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker pull "$IMAGE_NAME:$IMAGE_TAG"
+
+            IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.prod.yml up -d --force-recreate
+
+            # Verificação pós-deploy: container rodando exatamente a imagem do commit
+            CID="$(docker compose -f docker-compose.prod.yml ps -q web)"
+            if [ -z "$CID" ]; then
+              echo "Container web não encontrado" >&2
+              exit 1
+            fi
+            RUNNING_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CID")"
+            RUNNING_STATE="$(docker inspect --format '{{.State.Status}}' "$CID")"
+            echo "Container $CID: $RUNNING_IMAGE ($RUNNING_STATE)"
+            if [ "$RUNNING_IMAGE" != "$IMAGE_NAME:$IMAGE_TAG" ] || [ "$RUNNING_STATE" != "running" ]; then
+              echo "Esperado $IMAGE_NAME:$IMAGE_TAG em running" >&2
+              exit 1
+            fi
+
+            if command -v curl >/dev/null 2>&1; then
+              i=0
+              until curl -fsS -o /dev/null http://localhost:3000/; do
+                i=$((i + 1))
+                if [ "$i" -ge 15 ]; then
+                  echo "Healthcheck http://localhost:3000/ falhou" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              echo "Healthcheck OK"
+            fi
+
             docker image prune -f

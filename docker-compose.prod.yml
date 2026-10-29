@@ -1,6 +1,6 @@
 services:
   web:
-    image: ghcr.io/gabrielmattia/portfolio:latest
+    image: ghcr.io/gabrielmattia/portfolio:${IMAGE_TAG:-latest}
     ports:
       - "3000:3000"
     environment:
