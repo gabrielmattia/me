@@ -287,7 +287,7 @@ export function textFont(t: FontLike): {
 const metricsCache = new Map<string, { ascent: number; descent: number }>();
 
 /** Ascent/descent (em) da fonte que o navegador realmente usa. */
-function fontMetrics(t: FontLike): { ascent: number; descent: number } {
+export function fontMetrics(t: FontLike): { ascent: number; descent: number } {
 	const f = textFont(t);
 	const key = `${f.style} ${f.weight} ${f.family}`;
 	const cached = metricsCache.get(key);

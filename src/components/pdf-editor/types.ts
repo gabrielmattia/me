@@ -95,9 +95,20 @@ export interface TextObject extends BoxBase {
 	 * De onde veio o estilo atual. Ausente = o da ferramenta (nunca mudado);
 	 * "auto" = aplicado ao encaixar sobre uma linha do PDF; "manual" = o
 	 * usuário mudou fonte/tamanho/cor (ou usou o conta-gotas, ou "Desfazer
-	 * estilo"). O auto-estilo só é aplicado quando ausente ou "auto".
+	 * estilo"). Só informativo: soltar sobre uma linha do PDF aplica o estilo
+	 * dela em qualquer caso, exceto na linha de `styleKept`.
 	 */
 	styleOrigin?: "auto" | "manual";
+	/**
+	 * Linha do PDF (`lineId`) em que o usuário clicou "Desfazer estilo": soltar
+	 * de novo nela mantém o estilo do usuário.
+	 */
+	styleKept?: string;
+	/**
+	 * Linha do PDF que este texto substitui: o original sai do content stream
+	 * (mesma remoção de Editar texto) enquanto o objeto existir.
+	 */
+	replaces?: ReplacedLine;
 	/**
 	 * Ajustes por posição da linha do PDF do auto-estilo: valem sempre que o
 	 * conteúdo for igual a `text` (resultado idêntico ao original).
@@ -257,6 +268,14 @@ export interface ToolDefaults {
 }
 
 /** Linha de texto existente (itens do pdfjs na mesma baseline), no espaço base. */
+/** Linha de um bloco do PDF removida por um texto novo posto em cima dela. */
+export interface ReplacedLine {
+	/** `lineId` (chave do bloco + índice da linha). */
+	key: string;
+	text: string;
+	lines: TextLine[];
+}
+
 export interface TextLine {
 	str: string;
 	x: number;

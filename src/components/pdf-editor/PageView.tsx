@@ -6,7 +6,12 @@ import {
 	useState,
 } from "react";
 import { ACCENT } from "./constants";
-import { DRAWING_TOOLS, trackPointer, useEditor } from "./editor-context";
+import {
+	DRAWING_TOOLS,
+	type NoticeAction,
+	trackPointer,
+	useEditor,
+} from "./editor-context";
 import {
 	baselineRatio,
 	getPdfFont,
@@ -37,7 +42,12 @@ import {
 	baselineOffset,
 	buildTargets,
 	type Guide,
+	type LineBox,
+	lineId,
+	type PdfLineRef,
 	pdfLineAt,
+	removalRefs,
+	replacedLine,
 	SNAP_PX,
 	type SnapResult,
 	snapBox,
@@ -99,6 +109,18 @@ const styleSnapshot = (t: TextObject): TextStyle => ({
 	autoKerning: t.autoKerning,
 });
 
+/** Mesma aparência (estilo, posição e ajustes), ignorando a origem do estilo. */
+const looksSame = (a: TextObject, b: TextObject) => {
+	const k = (t: TextObject) =>
+		JSON.stringify([
+			{ ...styleSnapshot(t), styleOrigin: undefined },
+			t.x,
+			t.y,
+			t.pdfStyle?.kerning,
+		]);
+	return k(a) === k(b);
+};
+
 const NO_TEXT_NOTICE =
 	"Esta página não tem texto editável: o conteúdo é uma imagem (PDF digitalizado). Use Texto para escrever por cima ou Apagar para cobrir.";
 
@@ -140,6 +162,8 @@ export function PageView({
 	const [hoverBlock, setHoverBlock] = useState<string | null>(null);
 	/** Guias de encaixe visíveis durante o arraste. */
 	const [guides, setGuides] = useState<Guide[]>([]);
+	/** Linha do PDF onde o texto arrastado vai encaixar (realce). */
+	const [snapLine, setSnapLine] = useState<LineBox | null>(null);
 	/** Estilo exato de cada bloco do PDF (para o auto-estilo), por chave. */
 	const styleCache = useRef(new Map<string, Promise<TextObject | null>>());
 	const [preview, setPreview] = useState<Preview | null>(null);
@@ -160,16 +184,18 @@ export function PageView({
 	objectsRef.current = objects;
 	const disp = displaySize(page);
 	const pageDraft = draft?.object.pageId === page.id ? draft : null;
+	const draftRef = useRef(draft);
+	draftRef.current = draft;
 
-	// Textos existentes substituídos nesta página (inclusive o rascunho).
+	// Textos existentes editados e linhas substituídas nesta página (inclusive
+	// pelo rascunho).
+	const draftSource = pageDraft?.object.source;
+	const draftReplaces = pageDraft?.object.replaces;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: só o que muda a remoção
 	const sourceRefs = useMemo(() => {
-		const refs = new Map<string, TextObject["source"]>();
-		for (const o of objects)
-			if (o.type === "text" && o.source) refs.set(o.source.key, o.source);
-		const d = pageDraft?.object.source;
-		if (d) refs.set(d.key, d);
-		return [...refs.values()].filter((r): r is NonNullable<typeof r> => !!r);
-	}, [objects, pageDraft?.object.source]);
+		const d = draftRef.current?.object;
+		return removalRefs(d && d.pageId === page.id ? [...objects, d] : objects);
+	}, [objects, draftSource, draftReplaces, page.id]);
 	const stripKey = sourceRefs
 		.map((r) => r.key)
 		.sort()
@@ -184,7 +210,7 @@ export function PageView({
 			return;
 		}
 		let cancelled = false;
-		const refs = sourceRefs.map((r) => ({ key: r.key, lines: r.lines }));
+		const refs = sourceRefs;
 		import("./text-removal")
 			.then((m) => m.stripPage(page, refs))
 			.then((result) => {
@@ -342,7 +368,7 @@ export function PageView({
 		const tol = SNAP_PX / zoom;
 		const hit =
 			!noSnap && rotation === 0 && blocks
-				? pdfLineAt(unreplacedBlocks(), bx, by, tol)
+				? pdfLineAt(unreplacedBlocks(), bx, by, tol, replacedLines())
 				: null;
 		if (hit) {
 			const l = hit.block.lines[hit.line];
@@ -366,7 +392,7 @@ export function PageView({
 		setTool("select");
 		select(null);
 		setDraft({ object: obj, isNew: true });
-		if (snap) autoStyle(snap, true);
+		if (snap) dropOnLine(snap, true);
 	};
 
 	const blockColors = (block: TextBlock) => {
@@ -530,12 +556,31 @@ export function PageView({
 		return (blocks ?? []).filter((b) => !replaced.has(b.key));
 	};
 
+	/** Bloco editado inteiro ou com todas as linhas substituídas por textos. */
+	const isReplaced = (b: TextBlock) => {
+		const keys = new Set(sourceRefs.map((r) => r.key));
+		return (
+			keys.has(b.key) ||
+			b.lines.every((_, line) => keys.has(lineId({ block: b, line })))
+		);
+	};
+
+	/** Linhas do PDF substituídas por textos (menos o `excludeId`). */
+	const replacedLines = (excludeId?: string) => {
+		const keys = new Set<string>();
+		const d = draftRef.current?.object;
+		for (const o of d ? [...objectsRef.current, d] : objectsRef.current)
+			if (o.type === "text" && o.replaces && o.id !== excludeId)
+				keys.add(o.replaces.key);
+		return keys;
+	};
+
 	/** Alvos de encaixe da página, sem o próprio objeto. */
 	const snapTargets = (excludeId: string) => {
 		const others = objectsRef.current.filter((o) => o.id !== excludeId);
 		const d = pageDraft?.object;
 		if (d && d.id !== excludeId && pageDraft?.isNew) others.push(d);
-		return buildTargets(unreplacedBlocks(), others);
+		return buildTargets(unreplacedBlocks(), others, replacedLines(excludeId));
 	};
 
 	/** Estilo exato de um bloco (cacheado: o arraste já pede ao encaixar). */
@@ -557,50 +602,90 @@ export function PageView({
 				if (ev.altKey) {
 					last = null;
 					setGuides([]);
+					setSnapLine(null);
 					return obj;
 				}
 				const r = snapBox(obj, targets, SNAP_PX / zoom);
 				last = r;
 				setGuides(r.guides);
+				setSnapLine(r.obj.type === "text" ? (r.target ?? null) : null);
 				if (r.pdfY) blockStyle(r.pdfY.block);
 				return r.obj;
 			},
 			end() {
 				setGuides([]);
+				setSnapLine(null);
 				return last;
 			},
 		};
 	};
 
-	/** Volta o estilo anterior ao auto-estilo, mantendo a baseline e o x. */
-	const revertStyle = (id: string, prev: TextStyle) => {
-		const back = (t: TextObject) => {
-			const baseline = t.y + baselineOffset(t);
-			const n = withTextSize({ ...t, ...prev, styleOrigin: "manual" });
-			return { ...n, y: baseline - baselineOffset(n) };
-		};
-		// Ainda em edição: muda o rascunho; senão, o objeto (1 entrada de undo).
-		let applied = false;
-		setDraft((d) => {
-			if (!d || d.object.id !== id) return d;
-			applied = true;
-			return { ...d, object: back(d.object) };
-		});
-		if (applied) return;
+	/**
+	 * Muda o texto `id`: o rascunho, se ainda estiver em edição; senão o
+	 * objeto (uma entrada de undo).
+	 */
+	const patchText = (id: string, fn: (t: TextObject) => TextObject) => {
+		if (draftRef.current?.object.id === id) {
+			setDraft((d) =>
+				d && d.object.id === id ? { ...d, object: fn(d.object) } : d,
+			);
+			return;
+		}
 		const cur = objectsRef.current.find((o) => o.id === id);
 		if (cur?.type === "text")
-			dispatch({ type: "replaceObject", object: back(cur) });
+			dispatch({ type: "replaceObject", object: fn(cur) });
 	};
 
 	/**
-	 * Solto/criado com a baseline encaixada numa linha do PDF e por cima dela:
-	 * aplica o estilo da linha (sem nova entrada de undo no arraste) e avisa
-	 * com "Desfazer estilo".
+	 * Volta o estilo anterior ao auto-estilo, mantendo a baseline e o x, e
+	 * lembra a escolha para essa linha. Se o original tinha saído junto com o
+	 * estilo (conteúdo igual), ele volta.
 	 */
-	const autoStyle = (r: SnapResult, isDraft: boolean) => {
+	const revertStyle = (
+		id: string,
+		prev: TextStyle,
+		ref: PdfLineRef,
+		restoreOriginal: boolean,
+	) =>
+		patchText(id, (t) => {
+			const baseline = t.y + baselineOffset(t);
+			const n = withTextSize({
+				...t,
+				...prev,
+				styleOrigin: "manual",
+				styleKept: lineId(ref),
+				replaces:
+					restoreOriginal && t.replaces?.key === lineId(ref)
+						? undefined
+						: t.replaces,
+			});
+			return { ...n, y: baseline - baselineOffset(n) };
+		});
+
+	/** A linha pode sair do content stream (remoção verificada)? */
+	const canRemoveLine = (ref: PdfLineRef) => {
+		const r = replacedLine(ref);
+		return import("./text-removal")
+			.then((m) => m.stripPage(page, [{ key: r.key, lines: r.lines }]))
+			.then((res) => res.removed.has(r.key))
+			.catch(() => false);
+	};
+
+	/**
+	 * Solto/criado em cima de uma linha do PDF (baseline encaixada nela e
+	 * sobreposto na horizontal):
+	 * - aplica o estilo da linha, mesmo que o usuário tenha mudado o estilo à
+	 *   mão (só não na linha em que ele clicou "Desfazer estilo");
+	 * - se o conteúdo e o estilo ficam iguais aos da linha, o texto substitui
+	 *   o original (sem isso a sobreposição escurece as bordas);
+	 * - avisa com "Desfazer estilo" e "Substituir original"/"Manter original".
+	 * No arraste, tudo entra no mesmo passo de undo do movimento.
+	 */
+	const dropOnLine = (r: SnapResult, isDraft: boolean) => {
 		const ref = r.pdfY;
 		const moved = r.obj;
-		if (!ref || moved.type !== "text" || !acceptsAutoStyle(moved)) return;
+		if (!ref || moved.type !== "text" || moved.rotation !== 0 || moved.source)
+			return;
 		const l = ref.block.lines[ref.line];
 		const [a, z] = textSpan(moved);
 		if (moved.x + z < l.x || moved.x + a > l.x + l.w) return;
@@ -608,43 +693,85 @@ export function PageView({
 			r.pdfX && r.pdfX.block.key === ref.block.key && r.pdfX.line === ref.line
 				? r.pdfX.kind
 				: null;
-		blockStyle(ref.block).then((exact) => {
-			if (!exact) return;
+		const key = lineId(ref);
+		const taken = replacedLines(moved.id).has(key);
+		Promise.all([
+			blockStyle(ref.block),
+			taken ? false : canRemoveLine(ref),
+		]).then(([exact, removable]) => {
+			const base = isDraft
+				? draftRef.current?.object
+				: objectsRef.current.find((o) => o.id === moved.id);
+			if (base?.type !== "text" || base.id !== moved.id) return;
+			// O último passo do arraste pode ainda não ter renderizado.
+			const t: TextObject = isDraft
+				? base
+				: { ...base, x: moved.x, y: moved.y };
+			let n = t;
 			let prev: TextStyle | null = null;
-			const restyle = (t: TextObject) => {
-				if (!acceptsAutoStyle(t)) return null;
-				const n = styleForLine(t, exact, ref, anchor);
-				const same =
-					JSON.stringify([styleSnapshot(n), n.x, n.y, n.pdfStyle?.kerning]) ===
-					JSON.stringify([styleSnapshot(t), t.x, t.y, t.pdfStyle?.kerning]);
-				if (same) return null;
-				prev = styleSnapshot(t);
-				return n;
-			};
-			if (isDraft) {
-				setDraft((d) => {
-					if (!d || d.object.id !== moved.id) return d;
-					const n = restyle(d.object);
-					return n ? { ...d, object: n } : d;
-				});
-			} else {
-				const cur = objectsRef.current.find((o) => o.id === moved.id);
-				if (cur?.type !== "text") return;
-				// O último passo do arraste pode ainda não ter renderizado.
-				const n = restyle({ ...cur, x: moved.x, y: moved.y });
-				if (n) dispatch({ type: "replaceObject", object: n, record: false });
+			if (exact && acceptsAutoStyle(t, ref)) {
+				const styled = styleForLine(t, exact, ref, anchor);
+				if (!looksSame(styled, t)) {
+					prev = styleSnapshot(t);
+					n = styled;
+				}
 			}
+			const lineStyle =
+				exact !== null && looksSame(styleForLine(n, exact, ref, anchor), n);
+			let autoReplaced = false;
+			if (
+				removable &&
+				lineStyle &&
+				n.content === l.str &&
+				n.replaces?.key !== key
+			) {
+				n = { ...n, replaces: replacedLine(ref) };
+				autoReplaced = true;
+			}
+			if (n !== t) {
+				const next = n;
+				if (isDraft)
+					setDraft((d) =>
+						d && d.object.id === moved.id ? { ...d, object: next } : d,
+					);
+				else dispatch({ type: "replaceObject", object: next, record: false });
+			}
+			const actions: NoticeAction[] = [];
+			if (autoReplaced)
+				actions.push({
+					label: "Manter original",
+					run: () =>
+						patchText(moved.id, (o) =>
+							o.replaces?.key === key ? { ...o, replaces: undefined } : o,
+						),
+				});
+			else if (removable && n.content.trim() && n.replaces?.key !== key)
+				actions.push({
+					label: "Substituir original",
+					run: () =>
+						patchText(moved.id, (o) => ({ ...o, replaces: replacedLine(ref) })),
+				});
 			const before: TextStyle | null = prev;
-			if (!before) return;
-			notify("Estilo da linha do PDF aplicado.", {
-				label: "Desfazer estilo",
-				run: () => revertStyle(moved.id, before),
-			});
+			if (before)
+				actions.push({
+					label: "Desfazer estilo",
+					run: () => revertStyle(moved.id, before, ref, autoReplaced),
+				});
+			if (actions.length === 0) return;
+			notify(
+				autoReplaced
+					? "Texto encaixado no lugar da linha do PDF (original substituído)."
+					: before
+						? "Estilo da linha do PDF aplicado."
+						: "Texto encaixado na linha do PDF.",
+				actions,
+			);
 		});
 	};
 
 	// Ctrl/Cmd+D com o ponteiro sobre um texto do PDF duplica esse texto.
-	const hovered = blocks?.find((b) => b.key === hoverBlock) ?? null;
+	const hovered =
+		blocks?.find((b) => b.key === hoverBlock && !isReplaced(b)) ?? null;
 	const duplicateRef = useRef(duplicateBlock);
 	duplicateRef.current = duplicateBlock;
 	useEffect(() => {
@@ -927,7 +1054,7 @@ export function PageView({
 			(dx, dy, ev) => snap.move(translateObject(obj, dx, dy), ev),
 			(started) => {
 				const r = snap.end();
-				if (started && r) autoStyle(r, false);
+				if (started && r) dropOnLine(r, false);
 			},
 		);
 	};
@@ -966,7 +1093,7 @@ export function PageView({
 			(start, dx, dy, ev) => snap.move(translateObject(start, dx, dy), ev),
 			(started) => {
 				const r = snap.end();
-				if (started && r) autoStyle(r, true);
+				if (started && r) dropOnLine(r, true);
 			},
 		);
 	};
@@ -1025,7 +1152,9 @@ export function PageView({
 	const showBlocks =
 		tool === "editText" || tool === "select" || Boolean(stylePick);
 
-	const replacedBlocks = new Set(sourceRefs.map((r) => r.key));
+	const replacedBlocks = new Set(
+		(blocks ?? []).filter((b) => isReplaced(b)).map((b) => b.key),
+	);
 
 	// Cobertura só para textos cujo original ainda está desenhado no canvas
 	// (remoção pendente ou não segura).
@@ -1234,6 +1363,22 @@ export function PageView({
 							zoom={zoom}
 							onHandleDown={onDraftHandleDown}
 							onMoveDown={onDraftMoveDown}
+						/>
+					)}
+
+					{snapLine && (
+						<div
+							aria-hidden="true"
+							className="pointer-events-none absolute rounded-[2px]"
+							style={{
+								zIndex: 45,
+								left: snapLine.x * zoom - 2,
+								top: snapLine.y * zoom - 2,
+								width: snapLine.w * zoom + 4,
+								height: snapLine.h * zoom + 4,
+								background: "rgba(219, 39, 119, 0.12)",
+								boxShadow: "inset 0 0 0 1px rgba(219, 39, 119, 0.55)",
+							}}
 						/>
 					)}
 

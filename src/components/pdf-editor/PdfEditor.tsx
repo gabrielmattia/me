@@ -133,7 +133,7 @@ export function PdfEditor() {
 	const [isExporting, setIsExporting] = useState(false);
 	const [notice, setNotice] = useState<{
 		msg: string;
-		action?: NoticeAction;
+		actions: NoticeAction[];
 	} | null>(null);
 	const [viewer, setViewer] = useState<HTMLDivElement | null>(null);
 	/** Conta-gotas ativo: id do texto que recebe o estilo. */
@@ -198,14 +198,18 @@ export function PdfEditor() {
 		[commitDraft],
 	);
 
-	const showNotice = useCallback((msg: string, action?: NoticeAction) => {
-		const n = { msg, action };
-		setNotice(n);
-		window.setTimeout(
-			() => setNotice((cur) => (cur === n ? null : cur)),
-			action ? 6000 : 3500,
-		);
-	}, []);
+	const showNotice = useCallback(
+		(msg: string, action?: NoticeAction | NoticeAction[]) => {
+			const actions = action ? [action].flat() : [];
+			const n = { msg, actions };
+			setNotice(n);
+			window.setTimeout(
+				() => setNotice((cur) => (cur === n ? null : cur)),
+				actions.length > 1 ? 9000 : actions.length ? 6000 : 3500,
+			);
+		},
+		[],
+	);
 
 	// ── Arquivo ────────────────────────────────────────────────────────────
 
@@ -528,7 +532,13 @@ export function PdfEditor() {
 				// abaixo e no mesmo x: só um objeto novo, o original não muda.
 				const t = translateObject(obj, 0, obj.h) as TextObject;
 				copy = fitPdfStyle(
-					{ ...t, id: uid(), cover: undefined, source: undefined },
+					{
+						...t,
+						id: uid(),
+						cover: undefined,
+						source: undefined,
+						replaces: undefined,
+					},
 					t.pageId,
 				);
 			} else {
@@ -991,21 +1001,22 @@ export function PdfEditor() {
 						/>
 
 						{notice && (
-							<output className="absolute top-3 left-1/2 z-20 flex max-w-[90%] -translate-x-1/2 items-center gap-3 rounded-lg border bg-background px-4 py-2 text-sm shadow-lg">
+							<output className="absolute top-3 left-1/2 z-20 flex max-w-[90%] -translate-x-1/2 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-background px-4 py-2 text-sm shadow-lg">
 								<span>{notice.msg}</span>
-								{notice.action && (
+								{notice.actions.map((a) => (
 									<button
+										key={a.label}
 										type="button"
 										className="shrink-0 rounded-md px-2 py-0.5 font-medium text-blue-700 hover:bg-accent dark:text-blue-300"
 										onMouseDown={(e) => e.preventDefault()}
 										onClick={() => {
-											notice.action?.run();
+											a.run();
 											setNotice(null);
 										}}
 									>
-										{notice.action.label}
+										{a.label}
 									</button>
-								)}
+								))}
 							</output>
 						)}
 					</main>

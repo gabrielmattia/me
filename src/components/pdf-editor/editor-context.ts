@@ -37,8 +37,8 @@ export interface EditorContextValue {
 	setDraft: Dispatch<SetStateAction<TextDraft | null>>;
 	/** Confirma o rascunho de texto; com `id`, só se ainda for o rascunho atual. */
 	commitDraft: (id?: string) => void;
-	/** Aviso curto no topo do visualizador (com uma ação opcional). */
-	notify: (msg: string, action?: NoticeAction) => void;
+	/** Aviso curto no topo do visualizador (com ações opcionais). */
+	notify: (msg: string, action?: NoticeAction | NoticeAction[]) => void;
 	/** Cria uma cópia (texto: uma linha abaixo, mesma tipografia) e seleciona. */
 	duplicate: (obj: EditorObject) => void;
 	/** Conta-gotas: id do texto que vai receber o estilo clicado. */

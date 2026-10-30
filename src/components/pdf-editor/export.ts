@@ -44,6 +44,7 @@ import {
 	writeIncremental,
 } from "./incremental";
 import { getPrimarySource, type PdfSource } from "./pdf-source";
+import { removalRefs } from "./snapping";
 import { isUnchangedSourceEdit } from "./state";
 import {
 	describeBlock,
@@ -309,15 +310,11 @@ export async function exportPdf(doc: DocState): Promise<Uint8Array> {
 		const sourceTexts = pageObjects.filter(
 			(o): o is TextObject => o.type === "text" && o.source !== undefined,
 		);
+		// Textos editados (bloco inteiro) e linhas substituídas por texto novo.
+		const removal = removalRefs(pageObjects);
 		let removed = new Set<string>();
-		if (sourceTexts.length > 0 && model.source) {
-			const strip = await stripPage(
-				model,
-				sourceTexts.map((t) => ({
-					key: (t.source as NonNullable<TextObject["source"]>).key,
-					lines: (t.source as NonNullable<TextObject["source"]>).lines,
-				})),
-			);
+		if (removal.length > 0 && model.source) {
+			const strip = await stripPage(model, removal);
 			if (strip.content) {
 				page.node.set(
 					PDFName.of("Contents"),

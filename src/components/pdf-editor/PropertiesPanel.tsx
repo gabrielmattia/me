@@ -553,6 +553,24 @@ export function PropertiesPanel({
 								</p>
 							</>
 						)}
+						{selected.type === "text" && selected.replaces && (
+							<div className="space-y-2 rounded-md bg-muted p-2.5 text-xs leading-relaxed text-muted-foreground">
+								<p>
+									Este texto substitui a linha original do PDF “
+									{selected.replaces.text}”, que foi removida do arquivo.
+								</p>
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									onClick={() =>
+										onObjectChange({ replaces: undefined }, "replaces")
+									}
+								>
+									Manter original
+								</Button>
+							</div>
+						)}
 						<div className="grid grid-cols-2 gap-2 border-t pt-4">
 							<Button
 								type="button"
