@@ -526,7 +526,7 @@ export function FloatingTextBar({
 				label={
 					picking
 						? "Cancelar conta-gotas (Esc)"
-						: "Copiar estilo de um texto do PDF (conta-gotas)"
+						: "Conta-gotas: clique aqui e depois num texto do PDF para usar a mesma fonte, tamanho e cor"
 				}
 				active={picking}
 				onClick={() => onPickStyle(t)}
@@ -644,7 +644,11 @@ export function FloatingTextBar({
 
 			<Divider />
 			<BarButton
-				label={editing ? "Duplicar (confirma a edição)" : "Duplicar"}
+				label={
+					editing
+						? "Duplicar (Ctrl/⌘+D): confirma a edição e cria uma cópia idêntica uma linha abaixo"
+						: "Duplicar (Ctrl/⌘+D): cópia idêntica uma linha abaixo"
+				}
 				onClick={() => onDuplicate(t)}
 			>
 				<Copy />

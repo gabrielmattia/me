@@ -32,6 +32,19 @@ import {
 	TextDraftEditor,
 } from "./objects";
 import { getPdfPage, getTextBlocks, sampleColors } from "./pdf-source";
+import {
+	acceptsAutoStyle,
+	baselineOffset,
+	buildTargets,
+	type Guide,
+	pdfLineAt,
+	SNAP_PX,
+	type SnapResult,
+	snapBox,
+	snapResize,
+	styleForLine,
+	textSpan,
+} from "./snapping";
 import { sourceSnapshot, uid } from "./state";
 import type { StripResult } from "./text-removal";
 import type {
@@ -54,6 +67,37 @@ const MAX_CANVAS_PIXELS = 16_000_000;
 /** Duplo toque/clique: mesmo alvo, perto no tempo e no espaço. */
 const DOUBLE_TAP_MS = 400;
 const DOUBLE_TAP_PX = 12;
+
+const MOD_KEY =
+	typeof navigator !== "undefined" && /Mac|iP(hone|ad)/.test(navigator.platform)
+		? "⌘"
+		: "Ctrl+";
+
+/** Estilo de um texto (o que o auto-estilo troca e "Desfazer estilo" devolve). */
+type TextStyle = Pick<
+	TextObject,
+	| "fontFamily"
+	| "bold"
+	| "italic"
+	| "fontSize"
+	| "color"
+	| "pdfFont"
+	| "pdfStyle"
+	| "styleOrigin"
+	| "autoKerning"
+>;
+
+const styleSnapshot = (t: TextObject): TextStyle => ({
+	fontFamily: t.fontFamily,
+	bold: t.bold,
+	italic: t.italic,
+	fontSize: t.fontSize,
+	color: t.color,
+	pdfFont: t.pdfFont,
+	pdfStyle: t.pdfStyle,
+	styleOrigin: t.styleOrigin,
+	autoKerning: t.autoKerning,
+});
 
 const NO_TEXT_NOTICE =
 	"Esta página não tem texto editável: o conteúdo é uma imagem (PDF digitalizado). Use Texto para escrever por cima ou Apagar para cobrir.";
@@ -94,6 +138,10 @@ export function PageView({
 		null,
 	);
 	const [hoverBlock, setHoverBlock] = useState<string | null>(null);
+	/** Guias de encaixe visíveis durante o arraste. */
+	const [guides, setGuides] = useState<Guide[]>([]);
+	/** Estilo exato de cada bloco do PDF (para o auto-estilo), por chave. */
+	const styleCache = useRef(new Map<string, Promise<TextObject | null>>());
 	const [preview, setPreview] = useState<Preview | null>(null);
 	const [strip, setStrip] = useState<{
 		key: string;
@@ -108,6 +156,8 @@ export function PageView({
 		() => doc.objects.filter((o) => o.pageId === page.id),
 		[doc.objects, page.id],
 	);
+	const objectsRef = useRef(objects);
+	objectsRef.current = objects;
 	const disp = displaySize(page);
 	const pageDraft = draft?.object.pageId === page.id ? draft : null;
 
@@ -227,7 +277,9 @@ export function PageView({
 		let cancelled = false;
 		getTextBlocks(page)
 			.then((b) => {
-				if (!cancelled) setBlocks(b);
+				if (cancelled) return;
+				styleCache.current.clear();
+				setBlocks(b);
 			})
 			.catch(() => {});
 		return () => {
@@ -263,7 +315,7 @@ export function PageView({
 		select(obj.id);
 	};
 
-	const startTextDraft = (bx: number, by: number) => {
+	const startTextDraft = (bx: number, by: number, noSnap: boolean) => {
 		const rotation = normalizeRotation(-page.rotation);
 		let obj: TextObject = withTextSize({
 			id: uid(),
@@ -284,11 +336,37 @@ export function PageView({
 			rotation,
 			...placeLocalTopLeft(obj.w, obj.h, rotation, bx, top),
 		};
+		// Clique em cima de uma linha do PDF: o texto nasce na baseline dela
+		// (no início, se o clique foi perto) e recebe o estilo dela.
+		let snap: SnapResult<TextObject> | null = null;
+		const tol = SNAP_PX / zoom;
+		const hit =
+			!noSnap && rotation === 0 && blocks
+				? pdfLineAt(unreplacedBlocks(), bx, by, tol)
+				: null;
+		if (hit) {
+			const l = hit.block.lines[hit.line];
+			const atStart = Math.abs(bx - l.x) <= tol;
+			obj = {
+				...obj,
+				x: atStart ? l.x : bx,
+				y: l.baseline - baselineOffset(obj),
+			};
+			snap = {
+				obj,
+				guides: [],
+				pdfY: { ...hit, movingLine: 0 },
+				pdfX: atStart ? { ...hit, kind: "start" } : undefined,
+			};
+		} else if (!noSnap) {
+			obj = snapBox(obj, snapTargets(obj.id), tol).obj;
+		}
 		// Como no Google Slides/Canva/iLovePDF: criou a caixa, volta para
 		// Selecionar (o próximo clique na página não cria outra caixa).
 		setTool("select");
 		select(null);
 		setDraft({ object: obj, isNew: true });
+		if (snap) autoStyle(snap, true);
 	};
 
 	const blockColors = (block: TextBlock) => {
@@ -444,6 +522,127 @@ export function PageView({
 			.catch(() => {});
 	};
 
+	// ── Encaixe e auto-estilo ─────────────────────────────────────────────
+
+	/** Blocos do PDF ainda desenhados (os substituídos por edição saem). */
+	const unreplacedBlocks = () => {
+		const replaced = new Set(sourceRefs.map((r) => r.key));
+		return (blocks ?? []).filter((b) => !replaced.has(b.key));
+	};
+
+	/** Alvos de encaixe da página, sem o próprio objeto. */
+	const snapTargets = (excludeId: string) => {
+		const others = objectsRef.current.filter((o) => o.id !== excludeId);
+		const d = pageDraft?.object;
+		if (d && d.id !== excludeId && pageDraft?.isNew) others.push(d);
+		return buildTargets(unreplacedBlocks(), others);
+	};
+
+	/** Estilo exato de um bloco (cacheado: o arraste já pede ao encaixar). */
+	const blockStyle = (block: TextBlock) => {
+		let p = styleCache.current.get(block.key);
+		if (!p) {
+			p = exactBlockText(block, uid(), blockColors(block)).catch(() => null);
+			styleCache.current.set(block.key, p);
+		}
+		return p;
+	};
+
+	/** Arraste com encaixe: devolve o objeto encaixado e guarda o último resultado. */
+	const snapper = (excludeId: string) => {
+		const targets = snapTargets(excludeId);
+		let last: SnapResult | null = null;
+		return {
+			move<T extends EditorObject>(obj: T, ev: PointerEvent): T {
+				if (ev.altKey) {
+					last = null;
+					setGuides([]);
+					return obj;
+				}
+				const r = snapBox(obj, targets, SNAP_PX / zoom);
+				last = r;
+				setGuides(r.guides);
+				if (r.pdfY) blockStyle(r.pdfY.block);
+				return r.obj;
+			},
+			end() {
+				setGuides([]);
+				return last;
+			},
+		};
+	};
+
+	/** Volta o estilo anterior ao auto-estilo, mantendo a baseline e o x. */
+	const revertStyle = (id: string, prev: TextStyle) => {
+		const back = (t: TextObject) => {
+			const baseline = t.y + baselineOffset(t);
+			const n = withTextSize({ ...t, ...prev, styleOrigin: "manual" });
+			return { ...n, y: baseline - baselineOffset(n) };
+		};
+		// Ainda em edição: muda o rascunho; senão, o objeto (1 entrada de undo).
+		let applied = false;
+		setDraft((d) => {
+			if (!d || d.object.id !== id) return d;
+			applied = true;
+			return { ...d, object: back(d.object) };
+		});
+		if (applied) return;
+		const cur = objectsRef.current.find((o) => o.id === id);
+		if (cur?.type === "text")
+			dispatch({ type: "replaceObject", object: back(cur) });
+	};
+
+	/**
+	 * Solto/criado com a baseline encaixada numa linha do PDF e por cima dela:
+	 * aplica o estilo da linha (sem nova entrada de undo no arraste) e avisa
+	 * com "Desfazer estilo".
+	 */
+	const autoStyle = (r: SnapResult, isDraft: boolean) => {
+		const ref = r.pdfY;
+		const moved = r.obj;
+		if (!ref || moved.type !== "text" || !acceptsAutoStyle(moved)) return;
+		const l = ref.block.lines[ref.line];
+		const [a, z] = textSpan(moved);
+		if (moved.x + z < l.x || moved.x + a > l.x + l.w) return;
+		const anchor =
+			r.pdfX && r.pdfX.block.key === ref.block.key && r.pdfX.line === ref.line
+				? r.pdfX.kind
+				: null;
+		blockStyle(ref.block).then((exact) => {
+			if (!exact) return;
+			let prev: TextStyle | null = null;
+			const restyle = (t: TextObject) => {
+				if (!acceptsAutoStyle(t)) return null;
+				const n = styleForLine(t, exact, ref, anchor);
+				const same =
+					JSON.stringify([styleSnapshot(n), n.x, n.y, n.pdfStyle?.kerning]) ===
+					JSON.stringify([styleSnapshot(t), t.x, t.y, t.pdfStyle?.kerning]);
+				if (same) return null;
+				prev = styleSnapshot(t);
+				return n;
+			};
+			if (isDraft) {
+				setDraft((d) => {
+					if (!d || d.object.id !== moved.id) return d;
+					const n = restyle(d.object);
+					return n ? { ...d, object: n } : d;
+				});
+			} else {
+				const cur = objectsRef.current.find((o) => o.id === moved.id);
+				if (cur?.type !== "text") return;
+				// O último passo do arraste pode ainda não ter renderizado.
+				const n = restyle({ ...cur, x: moved.x, y: moved.y });
+				if (n) dispatch({ type: "replaceObject", object: n, record: false });
+			}
+			const before: TextStyle | null = prev;
+			if (!before) return;
+			notify("Estilo da linha do PDF aplicado.", {
+				label: "Desfazer estilo",
+				run: () => revertStyle(moved.id, before),
+			});
+		});
+	};
+
 	// Ctrl/Cmd+D com o ponteiro sobre um texto do PDF duplica esse texto.
 	const hovered = blocks?.find((b) => b.key === hoverBlock) ?? null;
 	const duplicateRef = useRef(duplicateBlock);
@@ -483,7 +682,7 @@ export function PageView({
 		}
 		e.preventDefault();
 		if (tool === "text") {
-			startTextDraft(sx, sy);
+			startTextDraft(sx, sy, e.altKey);
 			return;
 		}
 
@@ -614,6 +813,7 @@ export function PageView({
 		threshold: number,
 		onStart: () => void,
 		apply: (dx: number, dy: number, ev: PointerEvent) => void,
+		onEnd?: (started: boolean) => void,
 	) => {
 		const startX = e.clientX;
 		const startY = e.clientY;
@@ -630,7 +830,7 @@ export function PageView({
 				const [dx, dy] = screenDeltaToBase(sdx, sdy, page, zoom);
 				apply(dx, dy, ev);
 			},
-			() => {},
+			() => onEnd?.(started),
 		);
 	};
 
@@ -639,6 +839,7 @@ export function PageView({
 		e: ReactPointerEvent<Element>,
 		threshold: number,
 		next: (dx: number, dy: number, ev: PointerEvent) => EditorObject | null,
+		onEnd?: (started: boolean) => void,
 	) =>
 		drag(
 			e,
@@ -648,6 +849,7 @@ export function PageView({
 				const object = next(dx, dy, ev);
 				if (object) dispatch({ type: "replaceObject", object, record: false });
 			},
+			onEnd,
 		);
 
 	/** Texto em edição: altera só o rascunho (vira uma entrada ao confirmar). */
@@ -660,6 +862,7 @@ export function PageView({
 			dy: number,
 			ev: PointerEvent,
 		) => TextObject,
+		onEnd?: (started: boolean) => void,
 	) => {
 		const start = draft?.object;
 		if (!start) return;
@@ -673,7 +876,27 @@ export function PageView({
 						? { ...d, object: next(start, dx, dy, ev) }
 						: d,
 				),
+			onEnd,
 		);
+	};
+
+	/** Alça de redimensionar com encaixe da borda que ela move. */
+	const resizeSnapper = (obj: EditorObject) => {
+		const targets = snapTargets(obj.id);
+		return (
+			handle: Handle | "p1" | "p2",
+			dx: number,
+			dy: number,
+			ev: PointerEvent,
+		): [number, number] => {
+			if (ev.altKey) {
+				setGuides([]);
+				return [dx, dy];
+			}
+			const r = snapResize(obj, handle, dx, dy, targets, SNAP_PX / zoom);
+			setGuides(r.guides);
+			return [r.dx, r.dy];
+		};
 	};
 
 	const onObjectPointerDown = (
@@ -697,7 +920,16 @@ export function PageView({
 			setDraft({ object: obj, isNew: false });
 			return;
 		}
-		dragDocObject(e, 3, (dx, dy) => translateObject(obj, dx, dy));
+		const snap = snapper(obj.id);
+		dragDocObject(
+			e,
+			3,
+			(dx, dy, ev) => snap.move(translateObject(obj, dx, dy), ev),
+			(started) => {
+				const r = snap.end();
+				if (started && r) autoStyle(r, false);
+			},
+		);
 	};
 
 	const onHandleDown = (
@@ -708,8 +940,15 @@ export function PageView({
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
-		dragDocObject(e, 1, (dx, dy, ev) =>
-			resizeObject(obj, handle, dx, dy, ev.shiftKey),
+		const snap = resizeSnapper(obj);
+		dragDocObject(
+			e,
+			1,
+			(dx, dy, ev) => {
+				const [sx, sy] = snap(handle, dx, dy, ev);
+				return resizeObject(obj, handle, sx, sy, ev.shiftKey);
+			},
+			() => setGuides([]),
 		);
 	};
 
@@ -718,7 +957,18 @@ export function PageView({
 		// preventDefault mantém o foco no textarea: continua digitando depois.
 		e.stopPropagation();
 		e.preventDefault();
-		dragDraft(e, 1, (start, dx, dy) => translateObject(start, dx, dy));
+		const id = draft?.object.id;
+		if (!id) return;
+		const snap = snapper(id);
+		dragDraft(
+			e,
+			1,
+			(start, dx, dy, ev) => snap.move(translateObject(start, dx, dy), ev),
+			(started) => {
+				const r = snap.end();
+				if (started && r) autoStyle(r, true);
+			},
+		);
 	};
 
 	const onDraftHandleDown = (
@@ -728,10 +978,19 @@ export function PageView({
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
-		dragDraft(e, 1, (start, dx, dy, ev) => {
-			const next = resizeObject(start, handle, dx, dy, ev.shiftKey);
-			return next?.type === "text" ? next : start;
-		});
+		const start = draft?.object;
+		if (!start) return;
+		const snap = resizeSnapper(start);
+		dragDraft(
+			e,
+			1,
+			(s0, dx, dy, ev) => {
+				const [sx, sy] = snap(handle, dx, dy, ev);
+				const next = resizeObject(s0, handle, sx, sy, ev.shiftKey);
+				return next?.type === "text" ? next : s0;
+			},
+			() => setGuides([]),
+		);
 	};
 
 	const onBlockPointerDown = (
@@ -978,6 +1237,53 @@ export function PageView({
 						/>
 					)}
 
+					{guides.map((g) => (
+						<div
+							key={`${g.axis}:${g.v}`}
+							aria-hidden="true"
+							style={{
+								position: "absolute",
+								pointerEvents: "none",
+								zIndex: 46,
+								background: g.pdf ? "#db2777" : "#0891b2",
+								...(g.axis === "x"
+									? {
+											left: g.v * zoom - 0.5,
+											top: g.from * zoom - 4,
+											width: 1,
+											height: (g.to - g.from) * zoom + 8,
+										}
+									: {
+											left: g.from * zoom - 4,
+											top: g.v * zoom - 0.5,
+											width: (g.to - g.from) * zoom + 8,
+											height: 1,
+										}),
+							}}
+						/>
+					))}
+
+					{hovered &&
+						showBlocks &&
+						!stylePick &&
+						!pageDraft &&
+						guides.length === 0 && (
+							<div
+								aria-hidden="true"
+								className="pointer-events-none absolute z-40 select-none whitespace-nowrap rounded bg-neutral-900/85 px-1.5 py-0.5 text-[11px] leading-4 text-white shadow"
+								style={{
+									left: hovered.x * zoom,
+									top:
+										hovered.y * zoom >= 24
+											? hovered.y * zoom - 22
+											: (hovered.y + hovered.h) * zoom + 4,
+								}}
+							>
+								{tool === "editText" ? "Clique" : "Duplo clique"} para editar ·{" "}
+								{MOD_KEY}D para duplicar
+							</div>
+						)}
+
 					{tool === "editText" && noEditableText && (
 						<div className="pointer-events-none absolute inset-x-3 top-3 select-none rounded-md border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm">
 							{NO_TEXT_NOTICE}
@@ -1049,6 +1355,8 @@ function resizeObject(
 		return {
 			...obj,
 			...box,
+			// Mudou o tamanho à mão: o auto-estilo não troca mais o estilo.
+			styleOrigin: "manual",
 			fontSize: Math.max(
 				2,
 				Math.round(obj.fontSize * (box.w / obj.w) * 10) / 10,

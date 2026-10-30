@@ -92,6 +92,18 @@ export interface TextObject extends BoxBase {
 	 */
 	pdfStyle?: PdfTextStyle;
 	/**
+	 * De onde veio o estilo atual. Ausente = o da ferramenta (nunca mudado);
+	 * "auto" = aplicado ao encaixar sobre uma linha do PDF; "manual" = o
+	 * usuário mudou fonte/tamanho/cor (ou usou o conta-gotas, ou "Desfazer
+	 * estilo"). O auto-estilo só é aplicado quando ausente ou "auto".
+	 */
+	styleOrigin?: "auto" | "manual";
+	/**
+	 * Ajustes por posição da linha do PDF do auto-estilo: valem sempre que o
+	 * conteúdo for igual a `text` (resultado idêntico ao original).
+	 */
+	autoKerning?: { text: string; kerning: number[] };
+	/**
 	 * Cobertura usada só quando o texto original não pode ser removido do
 	 * content stream com segurança.
 	 */

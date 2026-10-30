@@ -432,8 +432,9 @@ const SHORTCUTS: Array<[string, string]> = [
 	["Ctrl/⌘ + Z", "Desfazer"],
 	["Ctrl/⌘ + Shift + Z", "Refazer"],
 	["Delete", "Excluir seleção"],
-	["Ctrl/⌘ + D", "Duplicar objeto"],
+	["Ctrl/⌘ + D", "Duplicar objeto (ou o texto do PDF sob o ponteiro)"],
 	["Setas", "Mover 1 pt (Shift: 10 pt)"],
+	["Alt ao arrastar", "Sem encaixe nas linhas e objetos"],
 	["Esc", "Cancelar / soltar seleção"],
 	["Shift ao arrastar", "Proporção / ângulo fixo"],
 ];

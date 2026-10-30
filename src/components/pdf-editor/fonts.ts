@@ -504,6 +504,10 @@ export function measureLines(t: MeasureLike): number[] {
  */
 export function withContent(t: TextObject, content: string): TextObject {
 	const st = t.pdfStyle;
+	// Mesmo texto da linha do PDF do auto-estilo: ajustes do original.
+	const ak = t.autoKerning;
+	if (st && ak && content === ak.text)
+		return { ...t, content, pdfStyle: { ...st, kerning: ak.kerning } };
 	if (!st?.kerning) return { ...t, content };
 	const prev = Array.from(t.content);
 	const next = Array.from(content);
