@@ -7,7 +7,14 @@ import {
 } from "react";
 import { ACCENT } from "./constants";
 import { DRAWING_TOOLS, trackPointer, useEditor } from "./editor-context";
-import { baselineRatio, getPdfFont, withTextSize } from "./fonts";
+import {
+	baselineRatio,
+	getPdfFont,
+	roundSize,
+	styleOf,
+	withContent,
+	withTextSize,
+} from "./fonts";
 import {
 	clientToBase,
 	displaySize,
@@ -32,6 +39,7 @@ import type {
 	InkObject,
 	LineObject,
 	PageModel,
+	PdfTextStyle,
 	TextBlock,
 	TextObject,
 } from "./types";
@@ -72,6 +80,10 @@ export function PageView({
 		setDraft,
 		commitDraft,
 		notify,
+		duplicate,
+		stylePick,
+		applyPickedStyle,
+		cancelStylePick,
 	} = useEditor();
 	const outerRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -209,7 +221,7 @@ export function PageView({
 
 	// Texto existente fica editável com Selecionar (duplo clique) e com
 	// Editar texto (um clique): carrega os blocos de toda página próxima.
-	const wantsBlocks = !DRAWING_TOOLS.has(tool);
+	const wantsBlocks = !DRAWING_TOOLS.has(tool) || Boolean(stylePick);
 	useEffect(() => {
 		if (!wantsBlocks || !near) return;
 		let cancelled = false;
@@ -279,95 +291,135 @@ export function PageView({
 		setDraft({ object: obj, isNew: true });
 	};
 
+	const blockColors = (block: TextBlock) => {
+		const canvas = canvasRef.current;
+		if (!canvas || canvas.width === 0)
+			return { background: "#ffffff", foreground: "#000000" };
+		const k = canvas.width / page.width;
+		return sampleColors(canvas, {
+			x: block.x * k,
+			y: block.y * k,
+			w: block.w * k,
+			h: block.h * k,
+		});
+	};
+
+	/**
+	 * Objeto de texto idêntico ao bloco do PDF: fonte embutida (se houver),
+	 * tamanho, cor e, com `pdfStyle`, Tc/Tw/Tz e ajuste de cada caractere.
+	 */
+	const blockText = (
+		block: TextBlock,
+		id: string,
+		color: string,
+		background: string,
+		pdfFont: string | undefined,
+		pdfStyle: PdfTextStyle | undefined,
+	): TextObject => {
+		const base: TextObject = {
+			id,
+			type: "text",
+			pageId: page.id,
+			x: block.x,
+			y: 0,
+			w: block.w,
+			h: block.h,
+			rotation: 0,
+			opacity: 1,
+			content: block.str,
+			fontFamily: block.fontFamily,
+			fontSize: roundSize(block.fontSize),
+			lineHeight:
+				block.lines.length > 1 ? block.leading / block.fontSize : undefined,
+			color,
+			bold: block.bold,
+			italic: block.italic,
+			align: "left",
+			pdfFont,
+			pdfStyle: pdfStyle && { ...pdfStyle, color },
+			cover: {
+				x: block.x - 1,
+				y: block.y - 1,
+				w: block.w + 2,
+				h: block.h + 2,
+				color: background,
+			},
+		};
+		// A baseline da primeira linha fica exatamente na baseline original.
+		const placed = withTextSize({
+			...base,
+			y: block.baseline - baselineRatio(base) * base.fontSize,
+		});
+		return {
+			...placed,
+			source: {
+				key: block.key,
+				text: block.str,
+				lines: block.lines,
+				color,
+				initial: sourceSnapshot(placed),
+				font: pdfFont
+					? {
+							pdfFont,
+							fontFamily: block.fontFamily,
+							bold: block.bold,
+							italic: block.italic,
+							pdfStyle: placed.pdfStyle,
+						}
+					: undefined,
+			},
+		};
+	};
+
+	/** Estilo exato do content stream (cor, fonte reutilizável, espaçamentos). */
+	const exactBlockText = async (
+		block: TextBlock,
+		id: string,
+		colors: { background: string; foreground: string },
+	) => {
+		const m = await import("./text-removal");
+		const res = await m.blockTextStyle(page, block).catch(() => null);
+		const pdfFont =
+			res && getPdfFont(block.fontName) ? block.fontName : undefined;
+		return blockText(
+			block,
+			id,
+			res?.color ?? colors.foreground,
+			colors.background,
+			pdfFont,
+			pdfFont ? res?.style : undefined,
+		);
+	};
+
 	const startBlockEdit = (block: TextBlock) => {
 		if (draft) commitDraft();
-		const canvas = canvasRef.current;
-		let colors = { background: "#ffffff", foreground: "#000000" };
-		if (canvas && canvas.width > 0) {
-			const k = canvas.width / page.width;
-			colors = sampleColors(canvas, {
-				x: block.x * k,
-				y: block.y * k,
-				w: block.w * k,
-				h: block.h * k,
-			});
-		}
-		const build = (color: string, pdfFont: string | undefined): TextObject => {
-			const base: TextObject = {
-				id,
-				type: "text",
-				pageId: page.id,
-				x: block.x,
-				y: 0,
-				w: block.w,
-				h: block.h,
-				rotation: 0,
-				opacity: 1,
-				content: block.str,
-				fontFamily: block.fontFamily,
-				fontSize: Math.round(block.fontSize * 100) / 100,
-				lineHeight:
-					block.lines.length > 1 ? block.leading / block.fontSize : undefined,
-				color,
-				bold: block.bold,
-				italic: block.italic,
-				align: "left",
-				pdfFont,
-				cover: {
-					x: block.x - 1,
-					y: block.y - 1,
-					w: block.w + 2,
-					h: block.h + 2,
-					color: colors.background,
-				},
-			};
-			// A baseline da primeira linha fica exatamente na baseline original.
-			const placed = withTextSize({
-				...base,
-				y: block.baseline - baselineRatio(base) * base.fontSize,
-			});
-			return {
-				...placed,
-				source: {
-					key: block.key,
-					text: block.str,
-					lines: block.lines,
-					color,
-					initial: sourceSnapshot(placed),
-					font: pdfFont
-						? {
-								pdfFont,
-								fontFamily: block.fontFamily,
-								bold: block.bold,
-								italic: block.italic,
-							}
-						: undefined,
-				},
-			};
-		};
+		const colors = blockColors(block);
 		const id = uid();
 		const pdfFont = getPdfFont(block.fontName) ? block.fontName : undefined;
-		const initial = build(colors.foreground, pdfFont);
+		const initial = blockText(
+			block,
+			id,
+			colors.foreground,
+			colors.background,
+			pdfFont,
+			undefined,
+		);
 		select(null);
 		setDraft({ object: initial, isNew: true });
 
 		// Estilo exato do content stream: cor original e se a fonte embutida
 		// pode ser reutilizada (precisa casar com um operador de texto).
-		import("./text-removal")
-			.then((m) => m.describeBlock(page, block.lines))
-			.then((style) => {
-				const exact = build(
-					style?.color ?? colors.foreground,
-					style ? pdfFont : undefined,
-				);
+		exactBlockText(block, id, colors)
+			.then((exact) => {
 				setDraft((d) => {
 					if (!d || d.object.id !== id) return d;
 					const o = d.object;
+					// O que o usuário já digitou/mudou prevalece.
+					const kept = withContent(exact, o.content);
 					return {
 						...d,
 						object: withTextSize({
-							...exact,
-							content: o.content,
+							...kept,
 							color: o.color === initial.color ? exact.color : o.color,
 						}),
 					};
@@ -376,8 +428,49 @@ export function PageView({
 			.catch(() => {});
 	};
 
+	/** Duplica um texto do PDF sem tocar no original: cria só um objeto novo. */
+	const duplicateBlock = (block: TextBlock) => {
+		const colors = blockColors(block);
+		exactBlockText(block, uid(), colors)
+			.then((exact) => duplicate(exact))
+			.catch(() => {});
+	};
+
+	/** Conta-gotas: estilo de um bloco do PDF para o texto alvo. */
+	const pickBlockStyle = (block: TextBlock) => {
+		const colors = blockColors(block);
+		exactBlockText(block, uid(), colors)
+			.then((exact) => applyPickedStyle(styleOf(exact)))
+			.catch(() => {});
+	};
+
+	// Ctrl/Cmd+D com o ponteiro sobre um texto do PDF duplica esse texto.
+	const hovered = blocks?.find((b) => b.key === hoverBlock) ?? null;
+	const duplicateRef = useRef(duplicateBlock);
+	duplicateRef.current = duplicateBlock;
+	useEffect(() => {
+		if (!hovered) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "d") return;
+			const el = e.target as HTMLElement | null;
+			if (el?.closest("input, textarea, select, [contenteditable=true]"))
+				return;
+			e.preventDefault();
+			duplicateRef.current(hovered);
+		};
+		// Captura: roda antes do atalho global de duplicar o objeto selecionado.
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [hovered]);
+
 	const onOverlayPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
 		if (e.button !== 0) return;
+		if (stylePick) {
+			// Clique fora de um texto cancela o conta-gotas (sem sair da edição).
+			e.preventDefault();
+			cancelStylePick();
+			return;
+		}
 		if (draft) commitDraft();
 		const [sx, sy] = toBase(e.clientX, e.clientY);
 
@@ -590,6 +683,12 @@ export function PageView({
 		if (e.button !== 0 || DRAWING_TOOLS.has(tool)) return;
 		e.stopPropagation();
 		e.preventDefault();
+		if (stylePick) {
+			if (obj.type === "text" && obj.id !== stylePick)
+				applyPickedStyle(styleOf(obj));
+			else cancelStylePick();
+			return;
+		}
 		if (draft && draft.object.id !== obj.id) commitDraft();
 		// Clicar num objeto com a ferramenta Texto é para mexer nele.
 		if (tool === "text") setTool("select");
@@ -641,6 +740,12 @@ export function PageView({
 	) => {
 		if (e.button !== 0) return;
 		e.stopPropagation();
+		if (stylePick) {
+			// preventDefault: o texto em edição não perde o foco.
+			e.preventDefault();
+			pickBlockStyle(b);
+			return;
+		}
 		if (tool === "editText") {
 			e.preventDefault();
 			startBlockEdit(b);
@@ -657,8 +762,9 @@ export function PageView({
 
 	// ── Render ────────────────────────────────────────────────────────────
 
-	const objectsInteractive = !DRAWING_TOOLS.has(tool);
-	const showBlocks = tool === "editText" || tool === "select";
+	const objectsInteractive = !DRAWING_TOOLS.has(tool) || Boolean(stylePick);
+	const showBlocks =
+		tool === "editText" || tool === "select" || Boolean(stylePick);
 
 	const replacedBlocks = new Set(sourceRefs.map((r) => r.key));
 
@@ -674,8 +780,9 @@ export function PageView({
 	}
 
 	const selected = objects.find((o) => o.id === selectedId);
-	const cursor =
-		tool === "select" || tool === "editText"
+	const cursor = stylePick
+		? "copy"
+		: tool === "select" || tool === "editText"
 			? "default"
 			: tool === "text"
 				? "text"
@@ -739,9 +846,11 @@ export function PageView({
 									key={b.key}
 									type="button"
 									title={
-										tool === "editText"
-											? "Clique para editar este texto"
-											: "Duplo clique para editar este texto"
+										stylePick
+											? "Clique para copiar o estilo deste texto"
+											: tool === "editText"
+												? "Clique para editar este texto (Ctrl+D duplica)"
+												: "Duplo clique para editar este texto (Ctrl+D duplica)"
 									}
 									onPointerDown={(e) => onBlockPointerDown(e, b)}
 									onMouseEnter={() => setHoverBlock(b.key)}
@@ -752,7 +861,7 @@ export function PageView({
 										top: b.y * zoom - 1,
 										width: b.w * zoom + 2,
 										height: b.h * zoom + 2,
-										cursor: "text",
+										cursor: stylePick ? "copy" : "text",
 										touchAction:
 											tool === "select" ? "pan-y pinch-zoom" : "none",
 										// Nada visível por padrão: só indica o bloco no hover.
@@ -883,7 +992,10 @@ export function PageView({
 							onChange={(content) =>
 								setDraft((d) =>
 									d
-										? { ...d, object: withTextSize({ ...d.object, content }) }
+										? {
+												...d,
+												object: withTextSize(withContent(d.object, content)),
+											}
 										: d,
 								)
 							}

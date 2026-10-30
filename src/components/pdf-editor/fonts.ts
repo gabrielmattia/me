@@ -2,6 +2,7 @@ import { rotateVec } from "./geometry";
 import type {
 	ExtraFamily,
 	FontFamily,
+	PdfTextStyle,
 	StandardFamily,
 	TextObject,
 } from "./types";
@@ -159,6 +160,13 @@ export interface PdfFontInfo {
 	widths: Record<number, number>;
 	defaultWidth: number;
 	family: StandardFamily;
+	bold: boolean;
+	italic: boolean;
+	/** BaseFont (com o prefixo de subset), para achar o recurso /Font. */
+	baseFont: string;
+	/** Primeira página onde a fonte foi vista. */
+	docId: string;
+	pageIndex: number;
 }
 
 const pdfFonts = new Map<string, PdfFontInfo>();
@@ -169,6 +177,16 @@ export function registerPdfFont(info: PdfFontInfo) {
 
 export function getPdfFont(name: string | undefined): PdfFontInfo | undefined {
 	return name ? pdfFonts.get(name) : undefined;
+}
+
+/** Fontes embutidas registradas (ordem de descoberta). */
+export function listPdfFonts(): PdfFontInfo[] {
+	return [...pdfFonts.values()];
+}
+
+/** Nome legível da fonte embutida (sem o prefixo de subset). */
+export function pdfFontLabel(info: PdfFontInfo): string {
+	return info.baseFont.replace(/^[A-Z]{6}\+/, "") || info.loadedName;
 }
 
 export function clearPdfFonts() {
@@ -233,7 +251,8 @@ export function pdfFontSupports(name: string, text: string): boolean {
 type FontLike = Pick<
 	TextObject,
 	"content" | "fontFamily" | "bold" | "italic" | "pdfFont"
->;
+> &
+	Partial<Pick<TextObject, "pdfStyle">>;
 
 /** Fonte embutida que será usada (na tela e no PDF), ou `null` = fonte padrão. */
 export function embeddedFont(t: FontLike): string | null {
@@ -307,9 +326,119 @@ type MeasureLike = Pick<
 	TextObject,
 	"content" | "fontFamily" | "fontSize" | "bold" | "italic" | "pdfFont"
 > &
-	Partial<Pick<TextObject, "wrapWidth">>;
+	Partial<Pick<TextObject, "wrapWidth" | "pdfStyle">>;
+
+// ─── Layout por glifo (fonte embutida) ───────────────────────────────────────
+// Com a fonte embutida, a posição de cada caractere segue o modelo do PDF:
+// largura do /Widths + Tc (+ Tw no espaço) − ajuste do TJ, vezes a escala
+// horizontal. A tela posiciona cada glifo nessas coordenadas e a exportação
+// escreve exatamente esses números, então as duas batem.
+
+/** Código do espaço na fonte embutida (`undefined` = sem glifo: vira ajuste no TJ). */
+export function pdfSpaceCode(info: PdfFontInfo): number | undefined {
+	return pdfFontHasGlyph(info.loadedName, " ")
+		? info.codes.get(" ")
+		: undefined;
+}
+
+/** Ajuste do TJ (milésimos de em) para o caractere `i` de `content`. */
+export function kernAt(
+	style: PdfTextStyle | undefined,
+	chars: string[],
+	i: number,
+): number {
+	if (!style) return 0;
+	const k = style.kerning;
+	if (k && k.length === chars.length) return k[i] ?? 0;
+	return style.kernByChar?.[chars[i]] ?? 0;
+}
+
+/** Avanço (pt) de um caractere com a fonte embutida, já com o ajuste `kern`. */
+export function pdfAdvance(
+	info: PdfFontInfo,
+	t: Pick<TextObject, "fontSize" | "fontFamily"> & { pdfStyle?: PdfTextStyle },
+	ch: string,
+	kern: number,
+	space: number | undefined,
+): number {
+	const st = t.pdfStyle;
+	const h = (st?.hScale ?? 100) / 100;
+	const fs = t.fontSize;
+	const code = ch === " " ? space : info.codes.get(ch);
+	if (code === undefined)
+		return (fallbackSpaceEm(t.fontFamily) * fs - (kern / 1000) * fs) * h;
+	const w = (info.widths[code] ?? info.defaultWidth) / 1000;
+	let adv = w * fs + (st?.charSpacing ?? 0);
+	if (!info.composite && code === 32) adv += st?.wordSpacing ?? 0;
+	return (adv - (kern / 1000) * fs) * h;
+}
+
+export interface LineLayout {
+	text: string;
+	/** Posição de cada caractere a partir do início da linha (pt); só com fonte embutida. */
+	xs: number[] | null;
+	/** Ajuste do TJ de cada caractere (para a exportação). */
+	kerns: number[];
+	width: number;
+}
+
+/**
+ * Linhas visuais com a largura de cada uma e, com a fonte embutida, a posição
+ * de cada glifo. A tela e o PDF usam este mesmo layout.
+ */
+export function layoutLines(t: MeasureLike): LineLayout[] {
+	const lines = textLines(t);
+	const name = embeddedFont(t);
+	const info = name ? pdfFonts.get(name) : undefined;
+	if (!info) {
+		const width = measurer(t);
+		return lines.map((text) => ({
+			text,
+			xs: null,
+			kerns: [],
+			width: width(text),
+		}));
+	}
+	const space = pdfSpaceCode(info);
+	const chars = Array.from(t.content);
+	// Índice de cada linha em `content` (só sem quebra automática).
+	let start = t.wrapWidth ? -1 : 0;
+	return lines.map((text) => {
+		const lc = Array.from(text);
+		const xs: number[] = [];
+		const kerns: number[] = [];
+		let x = 0;
+		lc.forEach((ch, i) => {
+			const kern =
+				start >= 0
+					? kernAt(t.pdfStyle, chars, start + i)
+					: (t.pdfStyle?.kernByChar?.[ch] ?? 0);
+			xs.push(x);
+			kerns.push(kern);
+			// O ajuste depois do último caractere não conta na largura.
+			x += pdfAdvance(info, t, ch, i === lc.length - 1 ? 0 : kern, space);
+		});
+		if (start >= 0) start += lc.length + 1;
+		return { text, xs, kerns, width: x };
+	});
+}
 
 function measurer(t: MeasureLike): (s: string) => number {
+	const name = embeddedFont(t);
+	const info = name ? pdfFonts.get(name) : undefined;
+	if (info) {
+		const space = pdfSpaceCode(info);
+		return (l) => {
+			let w = 0;
+			const lc = Array.from(l);
+			lc.forEach((ch, i) => {
+				const kern =
+					i === lc.length - 1 ? 0 : (t.pdfStyle?.kernByChar?.[ch] ?? 0);
+				w += pdfAdvance(info, t, ch, kern, space);
+			});
+			return w;
+		};
+	}
 	const c = ctx2d();
 	if (!c) return (l) => l.length * t.fontSize * 0.55;
 	const f = textFont(t);
@@ -365,8 +494,56 @@ export function textLines(t: MeasureLike): string[] {
 
 /** Largura de cada linha visual (pt) com a fonte usada na tela. */
 export function measureLines(t: MeasureLike): number[] {
-	const width = measurer(t);
-	return textLines(t).map(width);
+	return layoutLines(t).map((l) => l.width);
+}
+
+/**
+ * Troca o conteúdo mantendo os ajustes por caractere do original: o trecho
+ * igual no início e no fim preserva os seus; o digitado usa o típico de cada
+ * caractere.
+ */
+export function withContent(t: TextObject, content: string): TextObject {
+	const st = t.pdfStyle;
+	if (!st?.kerning) return { ...t, content };
+	const prev = Array.from(t.content);
+	const next = Array.from(content);
+	if (st.kerning.length !== prev.length)
+		return { ...t, content, pdfStyle: { ...st, kerning: undefined } };
+	let a = 0;
+	while (a < prev.length && a < next.length && prev[a] === next[a]) a++;
+	let b = 0;
+	while (
+		b < prev.length - a &&
+		b < next.length - a &&
+		prev[prev.length - 1 - b] === next[next.length - 1 - b]
+	)
+		b++;
+	const kerning = [
+		...st.kerning.slice(0, a),
+		...next.slice(a, next.length - b).map((ch) => st.kernByChar?.[ch] ?? 0),
+		...st.kerning.slice(prev.length - b),
+	];
+	return { ...t, content, pdfStyle: { ...st, kerning } };
+}
+
+/** Tamanho de fonte sem ruído de ponto flutuante (mantém 3 casas: 6.84, 10.125). */
+export const roundSize = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * Estilo de um texto para o conta-gotas: fonte (inclusive a embutida do PDF),
+ * tamanho exato, cor, espaçamento e escala. Os ajustes por posição ficam de
+ * fora (o conteúdo é outro); os típicos de cada caractere seguem.
+ */
+export function styleOf(t: TextObject): Partial<TextObject> {
+	return {
+		fontFamily: t.fontFamily,
+		bold: t.bold,
+		italic: t.italic,
+		fontSize: t.fontSize,
+		color: t.color,
+		pdfFont: t.pdfFont,
+		pdfStyle: t.pdfStyle && { ...t.pdfStyle, kerning: undefined },
+	};
 }
 
 /** Mede o texto com a mesma fonte usada na tela (em pontos, zoom 100%). */

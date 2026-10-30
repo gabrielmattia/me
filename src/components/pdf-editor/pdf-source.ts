@@ -207,7 +207,11 @@ function isIdentityCMap(cm: FontData["cMap"]): boolean {
 }
 
 /** Registra a fonte embutida para reutilização, se o pdfjs a carregou como fonte de verdade. */
-function registerFont(font: FontData, family: StandardFamily) {
+function registerFont(
+	font: FontData,
+	match: { family: StandardFamily; bold: boolean; italic: boolean },
+	where: { docId: string; index: number },
+) {
 	const name = font.loadedName;
 	if (!name || getPdfFont(name)) return;
 	if (font.missingFile || font.isType3Font || font.vertical) return;
@@ -232,7 +236,12 @@ function registerFont(font: FontData, family: StandardFamily) {
 		codes,
 		widths: font.widths ?? {},
 		defaultWidth: font.defaultWidth ?? 0,
-		family,
+		family: match.family,
+		bold: Boolean(font.bold || font.black) || match.bold,
+		italic: Boolean(font.italic) || match.italic,
+		baseFont: font.name ?? "",
+		docId: where.docId,
+		pageIndex: where.index,
 	});
 }
 
@@ -394,7 +403,7 @@ export function getTextBlocks(page: PageModel): Promise<TextBlock[]> {
 				font.name ?? "",
 				`${font.fallbackName ?? ""} ${style?.fontFamily ?? ""}`,
 			);
-			registerFont(font, match.family);
+			registerFont(font, match, src);
 			const x = Math.min(...group.map((l) => l.x));
 			const y = Math.min(...group.map((l) => l.y));
 			const right = Math.max(...group.map((l) => l.x + l.w));

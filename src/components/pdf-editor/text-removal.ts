@@ -30,6 +30,7 @@ import {
 	removeTextOps,
 	type TextRun,
 } from "./content-stream";
+import { getPdfFont, pdfAdvance, pdfSpaceCode } from "./fonts";
 import { applyMatrix, multiply } from "./geometry";
 import {
 	extractLines,
@@ -38,7 +39,7 @@ import {
 	loadPdfjs,
 	onSourcesCleared,
 } from "./pdf-source";
-import type { PageModel, TextLine } from "./types";
+import type { FontFamily, PageModel, PdfTextStyle, TextLine } from "./types";
 
 export interface SourceRef {
 	key: string;
@@ -206,6 +207,142 @@ export async function describeBlock(
 		run,
 		scale: Math.hypot(m[2], m[3]),
 		color: fillToHex(run),
+	};
+}
+
+/** Códigos de caractere de uma string do content stream. */
+function stringCodes(bytes: Uint8Array, composite: boolean): number[] {
+	const out: number[] = [];
+	if (composite) {
+		for (let i = 0; i + 1 < bytes.length; i += 2)
+			out.push((bytes[i] << 8) | bytes[i + 1]);
+	} else out.push(...bytes);
+	return out;
+}
+
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/**
+ * Tipografia completa de um bloco do PDF para reproduzi-lo com a fonte
+ * embutida: recurso /Font, Tc/Tw, escala horizontal efetiva, cor e o ajuste
+ * de cada caractere (PDFs do Excel/Word posicionam cada glifo com TJ).
+ * `null` quando o bloco não casa com o content stream.
+ */
+export async function blockTextStyle(
+	page: PageModel,
+	block: {
+		lines: TextLine[];
+		fontName: string;
+		fontSize: number;
+		fontFamily: FontFamily;
+	},
+): Promise<{ style: PdfTextStyle; color: string | null } | null> {
+	const src = page.source;
+	const desc = await describeBlock(page, block.lines);
+	if (!src || !desc?.run.fontRes) return null;
+	const { run, scale } = desc;
+	const m = multiply(run.matrix, page.viewTransform);
+	const style: PdfTextStyle = {
+		font: block.fontName,
+		docId: src.docId,
+		pageIndex: src.index,
+		fontRes: run.fontRes ?? undefined,
+		charSpacing: round4(run.charSpacing * scale),
+		wordSpacing: round4(run.wordSpacing * scale),
+		hScale: round4((run.hScale * Math.hypot(m[0], m[1])) / scale),
+		fill: run.fill,
+		gs: run.gs,
+		color: desc.color ?? "#000000",
+	};
+	const info = getPdfFont(block.fontName);
+	const a = info ? await analyze(src.docId, src.index) : null;
+	const matched = a ? matchRuns(a.analysis, block.lines, page) : null;
+	if (!info || !a || !matched) return { style, color: desc.color };
+
+	const toChar = new Map<number, string>();
+	for (const [ch, code] of info.codes)
+		if (!toChar.has(code)) toChar.set(code, ch);
+	const fs = block.fontSize;
+	const t = { fontSize: fs, fontFamily: block.fontFamily, pdfStyle: style };
+	const h = style.hScale / 100;
+	const space = pdfSpaceCode(info);
+
+	/** Origem (x no espaço base) de cada glifo da linha, na ordem do stream. */
+	const glyphsOf = (runs: (typeof matched)[number]) => {
+		const out: Array<{ ch: string; x: number }> = [];
+		for (const r of [...runs].sort((p, q) => p.origin[0] - q.origin[0])) {
+			if (r.fontRes !== run.fontRes) return null;
+			const th = r.hScale / 100;
+			const toBase = multiply(r.matrix, page.viewTransform);
+			let tx = 0;
+			for (const show of r.shows) {
+				const operands = a.analysis.ops[show.op]?.operands ?? [];
+				const items = operands.flatMap((o) => (Array.isArray(o) ? o : [o]));
+				for (const it of items) {
+					if (typeof it === "number") {
+						if (operands.some(Array.isArray))
+							tx -= (it / 1000) * r.fontSize * th;
+						continue;
+					}
+					if (!it || typeof it !== "object" || !("bytes" in it)) continue;
+					for (const code of stringCodes(it.bytes, info.composite)) {
+						const ch = toChar.get(code);
+						if (ch === undefined) return null;
+						out.push({ ch, x: applyMatrix(toBase, tx, 0)[0] });
+						const w = (info.widths[code] ?? info.defaultWidth) / 1000;
+						const tw = !info.composite && code === 32 ? show.tw : 0;
+						tx += (w * r.fontSize + show.tc + tw) * th;
+					}
+				}
+			}
+		}
+		return out;
+	};
+
+	const kerning: number[] = [];
+	const samples = new Map<string, number[]>();
+	for (let li = 0; li < block.lines.length; li++) {
+		const glyphs = glyphsOf(matched[li]);
+		if (!glyphs) return { style, color: desc.color };
+		// Casa cada caractere da linha com um glifo; espaço sem glifo = virtual.
+		const chars = Array.from(block.lines[li].str);
+		const xs: Array<number | null> = [];
+		let g = 0;
+		for (const ch of chars) {
+			while (g < glyphs.length && glyphs[g].ch !== ch && glyphs[g].ch === " ")
+				g++;
+			if (g < glyphs.length && glyphs[g].ch === ch) xs.push(glyphs[g++].x);
+			else if (ch === " ") xs.push(null);
+			else return { style, color: desc.color };
+		}
+		if (xs[0] === null || xs[0] === undefined)
+			return { style, color: desc.color };
+		let mx = xs[0];
+		chars.forEach((ch, j) => {
+			const next = xs[j + 1];
+			const natural = pdfAdvance(info, t, ch, 0, space);
+			let k = 0;
+			if (j < chars.length - 1 && next !== null && next !== undefined) {
+				k = round4(((mx + natural - next) * 1000) / (fs * h));
+				mx = next;
+				if (xs[j] !== null) {
+					const list = samples.get(ch) ?? [];
+					list.push(k);
+					samples.set(ch, list);
+				}
+			} else mx += natural;
+			kerning.push(k);
+		});
+		if (li < block.lines.length - 1) kerning.push(0); // "\n"
+	}
+	const kernByChar: Record<string, number> = {};
+	for (const [ch, list] of samples) {
+		const sorted = [...list].sort((p, q) => p - q);
+		kernByChar[ch] = sorted[Math.floor(sorted.length / 2)];
+	}
+	return {
+		style: { ...style, kerning, kernByChar },
+		color: desc.color,
 	};
 }
 

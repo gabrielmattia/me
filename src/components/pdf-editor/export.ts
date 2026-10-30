@@ -15,6 +15,7 @@ import {
 	PDFOperator,
 	PDFPage,
 	PDFPageTree,
+	PDFRef,
 	popGraphicsState,
 	pushGraphicsState,
 	rgb,
@@ -27,11 +28,14 @@ import {
 	fallbackSpaceEm,
 	getPdfFont,
 	isExtraFamily,
+	type LineLayout,
+	layoutLines,
 	lineHeightOf,
 	lineOffsets,
-	pdfFontHasGlyph,
+	pdfSpaceCode,
 	textLines,
 	underlineRects,
+	withTextSize,
 } from "./fonts";
 import { arrowHeadPath, arrowShaftEnd, chain, invert } from "./geometry";
 import {
@@ -53,6 +57,7 @@ import type {
 	EditorObject,
 	Matrix,
 	PageModel,
+	PdfTextStyle,
 	StandardFamily,
 	TextObject,
 } from "./types";
@@ -248,6 +253,12 @@ export async function exportPdf(doc: DocState): Promise<Uint8Array> {
 	const order = (ps: PDFPage[]) => ps.map((p) => p.ref.tag).join(",");
 	if (order(finalPages) !== order(originals)) rebuildPageTree(base, finalPages);
 
+	const embedCtx: EmbedContext = {
+		primaryId: primary.id,
+		originals,
+		imported: new Map(),
+	};
+
 	// 2. Rotação e objetos de cada página.
 	const fonts = new Map<string, PDFFont>();
 	const images = new Map<string, PDFImage>();
@@ -332,7 +343,7 @@ export async function exportPdf(doc: DocState): Promise<Uint8Array> {
 		}
 
 		for (const obj of pageObjects) {
-			await drawObject(base, page, model, obj, getFont, getImage);
+			await drawObject(base, page, model, obj, getFont, getImage, embedCtx);
 		}
 	}
 
@@ -346,9 +357,102 @@ export async function exportPdf(doc: DocState): Promise<Uint8Array> {
 const op = (name: string, args: Parameters<typeof PDFOperator.of>[1] = []) =>
 	PDFOperator.of(name as Ops, args);
 
+interface EmbedContext {
+	primaryId: string;
+	/** Páginas originais do PDF principal (antes de reordenar). */
+	originals: PDFPage[];
+	/** Nomes já criados para fontes trazidas de outra página. */
+	imported: Map<string, string>;
+}
+
+const baseFontOf = (doc: PDFDocument, ref: unknown): string | undefined => {
+	const dict = doc.context.lookupMaybe(ref as PDFRef, PDFDict);
+	const name = dict?.get(PDFName.of("BaseFont"));
+	return name instanceof PDFName ? name.decodeText() : undefined;
+};
+
 /**
- * Texto com a fonte embutida do próprio PDF (mesmo recurso /Font da página,
- * com Tc/Tz e cor originais). `false` = não foi possível, usar fonte padrão.
+ * Nome do recurso /Font da fonte embutida nesta página. Na página de origem é
+ * o próprio recurso; em outra página do PDF principal, a mesma fonte (mesmo
+ * objeto) é referenciada sob um nome novo. `null` = não disponível.
+ */
+function resolveFontRes(
+	doc: PDFDocument,
+	page: PDFPage,
+	model: PageModel,
+	style: PdfTextStyle,
+	baseFont: string,
+	ctx: EmbedContext,
+): string | null {
+	const fontDict = page.node
+		.Resources()
+		?.lookupMaybe(PDFName.of("Font"), PDFDict);
+	if (!fontDict) return null;
+	const samePage =
+		model.source?.docId === style.docId &&
+		model.source.index === style.pageIndex;
+	if (samePage && style.fontRes) {
+		const ref = fontDict.get(PDFName.of(style.fontRes));
+		if (ref && (!baseFont || baseFontOf(doc, ref) === baseFont))
+			return style.fontRes;
+	}
+	if (samePage) {
+		for (const [key, ref] of fontDict.entries())
+			if (baseFontOf(doc, ref) === baseFont) return key.decodeText();
+	}
+	if (style.docId !== ctx.primaryId) return null;
+	const srcFonts = ctx.originals[style.pageIndex]?.node
+		.Resources()
+		?.lookupMaybe(PDFName.of("Font"), PDFDict);
+	if (!srcFonts) return null;
+	let ref: ReturnType<PDFDict["get"]>;
+	const byRes = style.fontRes
+		? srcFonts.get(PDFName.of(style.fontRes))
+		: undefined;
+	if (byRes && (!baseFont || baseFontOf(doc, byRes) === baseFont)) ref = byRes;
+	else
+		for (const [, r] of srcFonts.entries())
+			if (baseFontOf(doc, r) === baseFont) ref = r;
+	if (!(ref instanceof PDFRef)) return null;
+	// A página já usa o mesmo objeto de fonte?
+	for (const [key, r] of fontDict.entries())
+		if (r instanceof PDFRef && r.tag === ref.tag) return key.decodeText();
+	let name = ctx.imported.get(ref.tag);
+	if (!name || fontDict.get(PDFName.of(name))) {
+		let n = 1;
+		while (fontDict.get(PDFName.of(`EdF${n}`))) n++;
+		name = `EdF${n}`;
+		ctx.imported.set(ref.tag, name);
+	}
+	fontDict.set(PDFName.of(name), ref);
+	return name;
+}
+
+/** Estilo do texto original (blocos editados sem `pdfStyle`, ex.: antigos). */
+async function legacyStyle(
+	model: PageModel,
+	t: TextObject,
+): Promise<PdfTextStyle | null> {
+	if (!t.source || !model.source) return null;
+	const desc: RunStyle | null = await describeBlock(model, t.source.lines);
+	if (!desc?.run.fontRes) return null;
+	return {
+		docId: model.source.docId,
+		pageIndex: model.source.index,
+		fontRes: desc.run.fontRes,
+		charSpacing: desc.run.charSpacing * desc.scale,
+		wordSpacing: desc.run.wordSpacing * desc.scale,
+		hScale: desc.run.hScale,
+		fill: desc.run.fill,
+		gs: desc.run.gs,
+		color: t.source.color,
+	};
+}
+
+/**
+ * Texto com a fonte embutida do próprio PDF: mesmo objeto /Font, Tc/Tw/Tz, cor
+ * original e o ajuste de cada caractere (o mesmo layout da tela).
+ * `false` = não foi possível, usar fonte padrão.
  */
 async function drawEmbeddedText(
 	doc: PDFDocument,
@@ -356,55 +460,64 @@ async function drawEmbeddedText(
 	model: PageModel,
 	t: TextObject,
 	loadedName: string,
+	ctx: EmbedContext,
 ): Promise<boolean> {
 	const info = getPdfFont(loadedName);
-	if (!info || !t.source) return false;
-	const style: RunStyle | null = await describeBlock(model, t.source.lines);
-	const fontRes = style?.run.fontRes;
-	if (!style || !fontRes) return false;
-	const res = page.node.Resources();
-	const fontDict = res?.lookupMaybe(PDFName.of("Font"), PDFDict);
-	if (!fontDict?.get(PDFName.of(fontRes))) return false;
+	if (!info) return false;
+	const style = t.pdfStyle ?? (await legacyStyle(model, t));
+	if (!style) return false;
+	const fontRes = resolveFontRes(doc, page, model, style, info.baseFont, ctx);
+	if (!fontRes) return false;
+	const samePage =
+		model.source?.docId === style.docId &&
+		model.source.index === style.pageIndex;
+	const obj: TextObject = { ...t, pdfStyle: style };
 
-	const { run, scale } = style;
-	const hScale = run.hScale / 100 || 1;
-	const spaceCode = pdfFontHasGlyph(loadedName, " ")
-		? info.codes.get(" ")
-		: undefined;
-	const spaceAdjust = (-fallbackSpaceEm(t.fontFamily) * 1000) / hScale;
+	const space = pdfSpaceCode(info);
 	const bytesPerCode = info.composite ? 4 : 2;
-
-	const encodeLine = (line: string): PDFArray => {
+	const encodeLine = (line: LineLayout): PDFArray => {
 		const arr = doc.context.obj([]) as PDFArray;
 		let hex = "";
 		const flush = () => {
 			if (hex) arr.push(PDFHexString.of(hex));
 			hex = "";
 		};
-		for (const ch of line) {
-			const code = ch === " " ? spaceCode : info.codes.get(ch);
+		const chars = Array.from(line.text);
+		chars.forEach((ch, i) => {
+			const code = ch === " " ? space : info.codes.get(ch);
+			const last = i === chars.length - 1;
+			const kern = last ? 0 : (line.kerns[i] ?? 0);
 			if (code === undefined) {
+				// Espaço sem glifo: só deslocamento (mesmo modelo de `pdfAdvance`).
 				flush();
-				arr.push(PDFNumber.of(Math.round(spaceAdjust)));
-			} else {
-				hex += code.toString(16).padStart(bytesPerCode, "0");
+				arr.push(
+					PDFNumber.of(round4(-fallbackSpaceEm(t.fontFamily) * 1000 + kern)),
+				);
+				return;
 			}
-		}
+			hex += code.toString(16).padStart(bytesPerCode, "0");
+			if (kern) {
+				flush();
+				arr.push(PDFNumber.of(round4(kern)));
+			}
+		});
 		flush();
 		return arr;
 	};
 
-	const lines = textLines(t);
-	const offsets = lineOffsets(t);
+	const lines = layoutLines(obj);
+	const offsets = lineOffsets(obj);
 	const lh = lineHeightOf(t) * t.fontSize;
 	const first = t.h - baselineRatio(t) * t.fontSize;
-	const sameColor = t.color === t.source.color;
+	const sameColor = t.color === style.color;
 
 	const ops: PDFOperator[] = [
 		pushGraphicsState(),
 		concatTransformationMatrix(...boxMatrix(t, model)),
 	];
-	for (const name of run.gs) ops.push(op("gs", [PDFName.of(name)]));
+	// gs e cores com nome (espaço de cor/padrão) só existem na página de origem.
+	if (samePage)
+		for (const name of style.gs) ops.push(op("gs", [PDFName.of(name)]));
 	if (t.opacity < 1) {
 		const gs = page.node.newExtGState(
 			"GS",
@@ -412,8 +525,11 @@ async function drawEmbeddedText(
 		);
 		ops.push(op("gs", [gs]));
 	}
-	if (sameColor) {
-		for (const f of run.fill) {
+	const namedFill = style.fill.some((f) =>
+		f.args.some((a) => typeof a !== "number"),
+	);
+	if (sameColor && style.fill.length && (samePage || !namedFill)) {
+		for (const f of style.fill) {
 			ops.push(
 				op(
 					f.op,
@@ -438,13 +554,11 @@ async function drawEmbeddedText(
 		op("Tf", [PDFName.of(fontRes), PDFNumber.of(t.fontSize)]),
 		op("Tr", [PDFNumber.of(0)]),
 	);
-	if (run.charSpacing)
-		ops.push(op("Tc", [PDFNumber.of(run.charSpacing * scale)]));
-	if (run.wordSpacing)
-		ops.push(op("Tw", [PDFNumber.of(run.wordSpacing * scale)]));
-	if (run.hScale !== 100) ops.push(op("Tz", [PDFNumber.of(run.hScale)]));
+	if (style.charSpacing) ops.push(op("Tc", [PDFNumber.of(style.charSpacing)]));
+	if (style.wordSpacing) ops.push(op("Tw", [PDFNumber.of(style.wordSpacing)]));
+	if (style.hScale !== 100) ops.push(op("Tz", [PDFNumber.of(style.hScale)]));
 	lines.forEach((line, i) => {
-		if (!line) return;
+		if (!line.text) return;
 		ops.push(
 			op("Tm", [
 				PDFNumber.of(1),
@@ -461,6 +575,8 @@ async function drawEmbeddedText(
 	page.pushOperators(...ops);
 	return true;
 }
+
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
 
 /** Sublinhado: retângulos com a mesma geometria desenhada na tela. */
 function drawUnderline(page: PDFPage, model: PageModel, t: TextObject) {
@@ -487,6 +603,7 @@ async function drawObject(
 	obj: EditorObject,
 	getFont: (t: TextObject) => Promise<PDFFont>,
 	getImage: (src: string) => Promise<PDFImage>,
+	ctx: EmbedContext,
 ) {
 	if (obj.type === "line") {
 		const [ex, ey] = obj.arrow
@@ -519,12 +636,17 @@ async function drawObject(
 
 	if (obj.type === "text") {
 		const embedded = embeddedFont(obj);
-		if (embedded && (await drawEmbeddedText(doc, page, model, obj, embedded))) {
+		if (
+			embedded &&
+			(await drawEmbeddedText(doc, page, model, obj, embedded, ctx))
+		) {
 			drawUnderline(page, model, obj);
 			return;
 		}
 		// Sem a fonte embutida, a posição usa as métricas da fonte padrão.
-		const t: TextObject = embedded ? { ...obj, pdfFont: undefined } : obj;
+		const t: TextObject = embedded
+			? withTextSize({ ...obj, pdfFont: undefined })
+			: obj;
 		const font = await getFont(t);
 		const lines = textLines(t);
 		const offsets = lineOffsets(t);

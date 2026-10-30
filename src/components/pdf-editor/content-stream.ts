@@ -13,7 +13,7 @@ import type { Matrix } from "./types";
 export type Operand =
 	| number
 	| { name: string }
-	| { str: true }
+	| { str: true; bytes: Uint8Array }
 	| Operand[]
 	| { dict: true }
 	| boolean
@@ -50,6 +50,8 @@ export interface TextRun {
 	renderMode: number;
 	fill: ReplayOp[];
 	gs: string[];
+	/** Estado de cada operador de texto do run (Tc/Tw podem mudar no meio). */
+	shows: Array<{ op: number; tc: number; tw: number }>;
 }
 
 export interface PageAnalysis {
@@ -91,8 +93,12 @@ class Lexer {
 		if (this.pos >= b.length) return undefined;
 		const c = b[this.pos];
 		if (c === 40) {
+			const start = this.pos;
 			this.skipLiteral();
-			return { kind: "operand", value: { str: true } };
+			return {
+				kind: "operand",
+				value: { str: true, bytes: literalBytes(b, start + 1, this.pos - 1) },
+			};
 		}
 		if (c === 60) {
 			if (b[this.pos + 1] === 60) {
@@ -101,8 +107,11 @@ class Lexer {
 				return { kind: "operand", value: { dict: true } };
 			}
 			const end = b.indexOf(62, this.pos);
+			const bytes = hexBytes(
+				b.subarray(this.pos + 1, end < 0 ? b.length : end),
+			);
 			this.pos = end < 0 ? b.length : end + 1;
-			return { kind: "operand", value: { str: true } };
+			return { kind: "operand", value: { str: true, bytes } };
 		}
 		if (c === 91) {
 			this.pos++;
@@ -158,6 +167,50 @@ class Lexer {
 			if (t.kind === "op") throw new Error("operador dentro de dicionário");
 		}
 	}
+}
+
+/** Bytes de uma string literal `( … )` (sem os parênteses), com os escapes resolvidos. */
+function literalBytes(b: Uint8Array, from: number, to: number): Uint8Array {
+	const out: number[] = [];
+	const ESC: Record<number, number> = {
+		110: 10, // n
+		114: 13, // r
+		116: 9, // t
+		98: 8, // b
+		102: 12, // f
+	};
+	for (let i = from; i < to; i++) {
+		const c = b[i];
+		if (c !== 92) {
+			// Fim de linha não escapado vira \n.
+			if (c === 13) {
+				out.push(10);
+				if (b[i + 1] === 10) i++;
+			} else out.push(c);
+			continue;
+		}
+		const n = b[++i];
+		if (n === undefined) break;
+		if (n in ESC) out.push(ESC[n]);
+		else if (n >= 48 && n <= 55) {
+			let v = n - 48;
+			for (let k = 0; k < 2 && b[i + 1] >= 48 && b[i + 1] <= 55; k++)
+				v = v * 8 + (b[++i] - 48);
+			out.push(v & 255);
+		} else if (n === 13) {
+			if (b[i + 1] === 10) i++;
+		} else if (n !== 10) out.push(n);
+	}
+	return Uint8Array.from(out);
+}
+
+function hexBytes(b: Uint8Array): Uint8Array {
+	const digits = latin1(b).replace(/[^0-9a-fA-F]/g, "");
+	const even = digits.length % 2 ? `${digits}0` : digits;
+	const out = new Uint8Array(even.length / 2);
+	for (let i = 0; i < out.length; i++)
+		out[i] = Number.parseInt(even.slice(i * 2, i * 2 + 2), 16);
+	return out;
 }
 
 function latin1(b: Uint8Array): string {
@@ -406,11 +459,13 @@ export function analyzeContent(bytes: Uint8Array): PageAnalysis {
 						renderMode: gs.tr,
 						fill: gs.fill.length ? gs.fill : [{ op: "g", args: [0] }],
 						gs: [...gs.gs],
+						shows: [],
 					};
 					runs.push(r);
 					run = r;
 				}
 				(run as TextRun).ops.push(idx);
+				(run as TextRun).shows.push({ op: idx, tc: gs.tc, tw: gs.tw });
 				if (gs.tr >= 4) (run as TextRun).renderMode = gs.tr;
 			}
 		}

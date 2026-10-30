@@ -2,10 +2,19 @@ import {
 	type CSSProperties,
 	type PointerEvent,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 } from "react";
 import { ACCENT } from "./constants";
-import { lineHeightOf, textFont, textLines, underlineRects } from "./fonts";
+import {
+	baselineRatio,
+	layoutLines,
+	lineHeightOf,
+	lineOffsets,
+	textFont,
+	textLines,
+	underlineRects,
+} from "./fonts";
 import {
 	ALL_HANDLES,
 	arrowHeadPath,
@@ -134,6 +143,103 @@ function Underlines({ t, zoom }: { t: TextObject; zoom: number }) {
 	);
 }
 
+function hexRgb(hex: string): [number, number, number] {
+	const h = hex.replace("#", "");
+	const full =
+		h.length === 3 ? [...h].map((c) => c + c).join("") : h.padEnd(6, "0");
+	return [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16)) as [
+		number,
+		number,
+		number,
+	];
+}
+
+/** Tamanho de fonte mínimo/máximo que o pdfjs usa no canvas (depois escala). */
+const PDFJS_MIN_FONT = 16;
+const PDFJS_MAX_FONT = 100;
+
+/**
+ * Texto com a fonte embutida: cada glifo na posição do layout do PDF (largura
+ * do /Widths, Tc/Tw, ajustes do TJ e escala horizontal), igual à exportação.
+ * É desenhado num canvas como o pdfjs desenha a página (fillText por glifo,
+ * fonte de 16px+ escalada, posição fracionária), alinhado aos pixels da página:
+ * no DOM o navegador ajusta a baseline à grade e suaviza diferente.
+ */
+function PdfGlyphs({ t, zoom }: { t: TextObject; zoom: number }) {
+	const ref = useRef<HTMLCanvasElement>(null);
+	const embedded = textFont(t).embedded;
+	const fs = t.fontSize;
+	const pad = fs * 2;
+	const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+	const k = zoom * dpr;
+	// Canvas começa num pixel inteiro do dispositivo (como o canvas da página).
+	const left = Math.floor((t.x - pad) * k) / k;
+	const top = Math.floor((t.y - pad) * k) / k;
+	const w = Math.ceil((t.w + 2 * pad) * k);
+	const h = Math.ceil((t.h + 2 * pad) * k);
+
+	useLayoutEffect(() => {
+		const c = ref.current;
+		const out = c?.getContext("2d");
+		if (!c || !out || !embedded || w === 0 || h === 0) return;
+		c.width = w;
+		c.height = h;
+		// Desenha em preto sobre branco opaco (a suavização do texto é a mesma
+		// do canvas da página) e converte a cobertura em alfa na cor do texto.
+		const off = document.createElement("canvas");
+		off.width = w;
+		off.height = h;
+		const ctx = off.getContext("2d", { willReadFrequently: true });
+		if (!ctx) return;
+		ctx.fillStyle = "#ffffff";
+		ctx.fillRect(0, 0, w, h);
+		const lines = layoutLines(t);
+		const offsets = lineOffsets(t);
+		const lh = lineHeightOf(t) * fs;
+		const base = baselineRatio(t) * fs;
+		const hs = (t.pdfStyle?.hScale ?? 100) / 100;
+		const size = Math.min(PDFJS_MAX_FONT, Math.max(PDFJS_MIN_FONT, fs));
+		ctx.setTransform(k, 0, 0, k, (t.x - left) * k, (t.y - top) * k);
+		ctx.fillStyle = "#000000";
+		ctx.font = `${size}px "${embedded}"`;
+		lines.forEach((line, i) => {
+			Array.from(line.text).forEach((ch, j) => {
+				if (ch === " ") return;
+				ctx.save();
+				ctx.translate((offsets[i] ?? 0) + (line.xs?.[j] ?? 0), base + i * lh);
+				ctx.scale((hs * fs) / size, fs / size);
+				ctx.fillText(ch, 0, 0);
+				ctx.restore();
+			});
+		});
+		const img = ctx.getImageData(0, 0, w, h);
+		const d = img.data;
+		const rgb = hexRgb(t.color);
+		for (let i = 0; i < d.length; i += 4) {
+			const a = 255 - d[i];
+			d[i] = rgb[0];
+			d[i + 1] = rgb[1];
+			d[i + 2] = rgb[2];
+			d[i + 3] = a;
+		}
+		out.putImageData(img, 0, 0);
+	});
+
+	return (
+		<canvas
+			ref={ref}
+			style={{
+				position: "absolute",
+				left: (left - t.x) * zoom,
+				top: (top - t.y) * zoom,
+				width: w / dpr,
+				height: h / dpr,
+				pointerEvents: "none",
+			}}
+		/>
+	);
+}
+
 export function ObjectView({
 	obj,
 	page,
@@ -175,7 +281,11 @@ export function ObjectView({
 		case "text":
 			return (
 				<div {...handlers} style={{ ...style, ...textStyle(obj, zoom) }}>
-					{textLines(obj).join("\n")}
+					{textFont(obj).embedded ? (
+						<PdfGlyphs t={obj} zoom={zoom} />
+					) : (
+						textLines(obj).join("\n")
+					)}
 					<Underlines t={obj} zoom={zoom} />
 				</div>
 			);
@@ -451,8 +561,16 @@ export function TextDraftEditor({
 			wrap={wrap ? "soft" : "off"}
 			spellCheck={false}
 			aria-label="Editar texto"
+			data-text-draft=""
 			onChange={(e) => onChange(e.target.value)}
-			onBlur={onCommit}
+			onBlur={(e) => {
+				// Foco foi para a barra de formatação (tamanho, fonte, cor…):
+				// a edição continua; ela mesma confirma se o foco sair dela.
+				const to = e.relatedTarget as HTMLElement | null;
+				if (to?.closest("[data-text-toolbar], [data-text-toolbar-popup]"))
+					return;
+				onCommit();
+			}}
 			onPointerDown={(e) => e.stopPropagation()}
 			onKeyDown={(e) => {
 				e.stopPropagation();

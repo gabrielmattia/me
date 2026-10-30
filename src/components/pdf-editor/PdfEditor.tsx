@@ -17,7 +17,13 @@ import {
 	type TextDraft,
 } from "./editor-context";
 import { FloatingTextBar } from "./FloatingTextBar";
-import { ensureFont, withTextSize } from "./fonts";
+import {
+	embeddedFont,
+	ensureFont,
+	listPdfFonts,
+	type PdfFontInfo,
+	withTextSize,
+} from "./fonts";
 import {
 	clamp,
 	clientToBase,
@@ -31,6 +37,7 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import {
 	blankPage,
 	clearSources,
+	getPrimarySource,
 	loadPdfFile,
 	PdfLoadError,
 } from "./pdf-source";
@@ -99,6 +106,8 @@ export function PdfEditor() {
 	const [isExporting, setIsExporting] = useState(false);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [viewer, setViewer] = useState<HTMLDivElement | null>(null);
+	/** Conta-gotas ativo: id do texto que recebe o estilo. */
+	const [stylePick, setStylePick] = useState<string | null>(null);
 	const { theme, toggle: toggleTheme } = useEditorTheme();
 
 	const imageInputRef = useRef<HTMLInputElement>(null);
@@ -433,19 +442,96 @@ export function PdfEditor() {
 		setSelectedId(null);
 	}, [selected]);
 
-	const duplicateObject = useCallback((obj: EditorObject) => {
-		const copy = {
-			...translateObject(obj, 12, 12),
-			id: uid(),
-		} as EditorObject;
-		if (copy.type === "text") {
-			copy.cover = undefined;
-			copy.source = undefined;
-			copy.pdfFont = undefined;
-		}
-		dispatch({ type: "addObject", object: copy });
-		setSelectedId(copy.id);
-	}, []);
+	/**
+	 * A tipografia do PDF (fonte embutida) só pode ir para uma página que tenha
+	 * acesso à fonte: a própria página de origem ou qualquer página do PDF
+	 * principal. Senão o texto usa a fonte padrão mais próxima.
+	 */
+	const fitPdfStyle = useCallback(
+		<T extends Partial<TextObject>>(t: T, pageId: string): T => {
+			const st = t.pdfStyle;
+			if (!st) return t;
+			const page = doc.pages.find((p) => p.id === pageId);
+			const ok =
+				st.docId === getPrimarySource()?.id ||
+				(page?.source?.docId === st.docId &&
+					page.source.index === st.pageIndex);
+			return ok ? t : { ...t, pdfFont: undefined, pdfStyle: undefined };
+		},
+		[doc.pages],
+	);
+
+	/** Fontes embutidas que um texto desta página pode usar. */
+	const docFonts = useCallback(
+		(pageId: string): PdfFontInfo[] =>
+			listPdfFonts().filter(
+				(f) =>
+					fitPdfStyle(
+						{
+							pdfStyle: {
+								docId: f.docId,
+								pageIndex: f.pageIndex,
+								charSpacing: 0,
+								wordSpacing: 0,
+								hScale: 100,
+								fill: [],
+								gs: [],
+								color: "#000000",
+							},
+						},
+						pageId,
+					).pdfStyle !== undefined,
+			),
+		[fitPdfStyle],
+	);
+
+	const duplicateObject = useCallback(
+		(obj: EditorObject) => {
+			let copy: EditorObject;
+			if (obj.type === "text") {
+				// Mesma tipografia (inclusive a fonte embutida do PDF), uma linha
+				// abaixo e no mesmo x: só um objeto novo, o original não muda.
+				const t = translateObject(obj, 0, obj.h) as TextObject;
+				copy = fitPdfStyle(
+					{ ...t, id: uid(), cover: undefined, source: undefined },
+					t.pageId,
+				);
+			} else {
+				copy = { ...translateObject(obj, 12, 12), id: uid() } as EditorObject;
+			}
+			dispatch({ type: "addObject", object: copy });
+			setSelectedId(copy.id);
+		},
+		[fitPdfStyle],
+	);
+
+	const applyPickedStyle = useCallback(
+		(patch: Partial<TextObject>) => {
+			const target = stylePick;
+			setStylePick(null);
+			const t =
+				draftRef.current?.object.id === target
+					? draftRef.current.object
+					: selected?.id === target && selected?.type === "text"
+						? selected
+						: null;
+			if (!t) return;
+			const fitted = fitPdfStyle(patch, t.pageId);
+			if (patch.pdfFont && !fitted.pdfFont)
+				showNotice(
+					"A fonte desse texto é de outro PDF: usando a fonte padrão mais próxima.",
+				);
+			else if (
+				fitted.pdfFont &&
+				!embeddedFont({ ...t, ...fitted, content: t.content })
+			)
+				showNotice(
+					"A fonte do PDF não tem todos os caracteres deste texto: usando a fonte padrão mais próxima.",
+				);
+			applyTextPatch(fitted);
+		},
+		[stylePick, selected, fitPdfStyle, applyTextPatch, showNotice],
+	);
 
 	const duplicateSelected = useCallback(() => {
 		if (!selected) return;
@@ -515,7 +601,12 @@ export function PdfEditor() {
 	useEffect(() => {
 		if (status !== "ready") return;
 		const onKey = (e: KeyboardEvent) => {
-			if (signatureOpen || isTypingTarget(e.target)) return;
+			if (e.key === "Escape" && stylePick) {
+				setStylePick(null);
+				return;
+			}
+			if (e.defaultPrevented || signatureOpen || isTypingTarget(e.target))
+				return;
 			const mod = e.metaKey || e.ctrlKey;
 			const key = e.key.toLowerCase();
 			if (mod && key === "z") {
@@ -584,6 +675,7 @@ export function PdfEditor() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, [
 		status,
+		stylePick,
 		signatureOpen,
 		selected,
 		setDraft,
@@ -592,6 +684,12 @@ export function PdfEditor() {
 		setTool,
 		zoomStep,
 	]);
+
+	// O alvo do conta-gotas deixou de estar selecionado/em edição: cancela.
+	useEffect(() => {
+		if (stylePick && draft?.object.id !== stylePick && selectedId !== stylePick)
+			setStylePick(null);
+	}, [stylePick, draft, selectedId]);
 
 	// Aviso ao sair com alterações não exportadas.
 	const dirty = history.past.length > 0;
@@ -623,6 +721,10 @@ export function PdfEditor() {
 		setDraft,
 		commitDraft,
 		notify: showNotice,
+		duplicate: duplicateObject,
+		stylePick,
+		applyPickedStyle,
+		cancelStylePick: () => setStylePick(null),
 	};
 
 	if (status !== "ready") {
@@ -817,6 +919,19 @@ export function PdfEditor() {
 							}
 							editing={Boolean(draft)}
 							onApply={applyTextPatch}
+							docFonts={docFonts}
+							picking={stylePick !== null}
+							onPickStyle={(t) => {
+								if (stylePick) {
+									setStylePick(null);
+									return;
+								}
+								setStylePick(t.id);
+								showNotice(
+									"Clique num texto do PDF (ou outro texto) para copiar o estilo. Esc cancela.",
+								);
+							}}
+							onFocusLeave={() => commitDraft()}
 							onDuplicate={(t) => {
 								commitDraft();
 								duplicateObject(t);

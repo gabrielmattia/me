@@ -5,7 +5,13 @@ import {
 	useContext,
 } from "react";
 import type { DocAction } from "./state";
-import type { DocState, TextObject, Tool, ToolDefaults } from "./types";
+import type {
+	DocState,
+	EditorObject,
+	TextObject,
+	Tool,
+	ToolDefaults,
+} from "./types";
 
 export interface TextDraft {
 	object: TextObject;
@@ -28,6 +34,13 @@ export interface EditorContextValue {
 	commitDraft: (id?: string) => void;
 	/** Aviso curto no topo do visualizador. */
 	notify: (msg: string) => void;
+	/** Cria uma cópia (texto: uma linha abaixo, mesma tipografia) e seleciona. */
+	duplicate: (obj: EditorObject) => void;
+	/** Conta-gotas: id do texto que vai receber o estilo clicado. */
+	stylePick: string | null;
+	/** Aplica o estilo copiado ao texto alvo do conta-gotas e sai do modo. */
+	applyPickedStyle: (patch: Partial<TextObject>) => void;
+	cancelStylePick: () => void;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

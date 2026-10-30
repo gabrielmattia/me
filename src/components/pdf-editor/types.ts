@@ -87,12 +87,54 @@ export interface TextObject extends BoxBase {
 	 */
 	pdfFont?: string;
 	/**
+	 * Tipografia copiada de um texto do PDF (recurso de fonte, Tc/Tw/Tz, cor e
+	 * ajustes por caractere). Vale enquanto a fonte embutida estiver em uso.
+	 */
+	pdfStyle?: PdfTextStyle;
+	/**
 	 * Cobertura usada só quando o texto original não pode ser removido do
 	 * content stream com segurança.
 	 */
 	cover?: TextCover;
 	/** Presente quando o objeto substitui um texto existente do PDF. */
 	source?: SourceText;
+}
+
+/** Operador de cor/estado gráfico original, repetido no texto novo. */
+export interface PdfFillOp {
+	op: string;
+	args: Array<number | { name: string }>;
+}
+
+/**
+ * Tipografia de um texto do PDF, para reproduzi-lo com a fonte embutida. As
+ * medidas estão no espaço base (pt), já com a escala da página aplicada.
+ */
+export interface PdfTextStyle {
+	/** `loadedName` da fonte a que este estilo pertence. */
+	font?: string;
+	/** Página onde o recurso de fonte existe. */
+	docId: string;
+	pageIndex: number;
+	/** Nome do recurso /Font nessa página (sem ele, procura pelo BaseFont). */
+	fontRes?: string;
+	/** Tc e Tw (pt). */
+	charSpacing: number;
+	wordSpacing: number;
+	/** Escala horizontal efetiva (%): Tz × matriz do texto. */
+	hScale: number;
+	/** Operadores de cor/gs originais: repetidos enquanto `color` não mudar. */
+	fill: PdfFillOp[];
+	gs: string[];
+	color: string;
+	/**
+	 * Ajuste após cada caractere de `content` (milésimos de em, convenção do
+	 * TJ: positivo aproxima o próximo). Só vale com o mesmo número de
+	 * caracteres que `content`; senão usa `kernByChar`.
+	 */
+	kerning?: number[];
+	/** Ajuste típico de cada caractere no original (para texto digitado). */
+	kernByChar?: Record<string, number>;
 }
 
 /** Texto original substituído por um objeto de texto. */
@@ -107,6 +149,7 @@ export interface SourceText {
 		fontFamily: FontFamily;
 		bold: boolean;
 		italic: boolean;
+		pdfStyle?: PdfTextStyle;
 	};
 	/** Cor inicial: enquanto não mudar, o texto novo reusa os operadores de cor originais. */
 	color: string;
