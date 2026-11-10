@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PuntaCanaRouteImport } from './routes/punta-cana'
 import { Route as PdfEditorRouteImport } from './routes/pdf-editor'
+import { Route as MegaSenaRouteImport } from './routes/mega-sena'
 import { Route as EmberwakeRouteImport } from './routes/emberwake'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PoePobbinTradePrivacyRouteImport } from './routes/poe-pobbin-trade.privacy'
@@ -25,6 +26,11 @@ const PdfEditorRoute = PdfEditorRouteImport.update({
   path: '/pdf-editor',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/pdf-editor.lazy').then((d) => d.Route))
+const MegaSenaRoute = MegaSenaRouteImport.update({
+  id: '/mega-sena',
+  path: '/mega-sena',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EmberwakeRoute = EmberwakeRouteImport.update({
   id: '/emberwake',
   path: '/emberwake',
@@ -44,6 +50,7 @@ const PoePobbinTradePrivacyRoute = PoePobbinTradePrivacyRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
+  '/mega-sena': typeof MegaSenaRoute
   '/pdf-editor': typeof PdfEditorRoute
   '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
+  '/mega-sena': typeof MegaSenaRoute
   '/pdf-editor': typeof PdfEditorRoute
   '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/emberwake': typeof EmberwakeRoute
+  '/mega-sena': typeof MegaSenaRoute
   '/pdf-editor': typeof PdfEditorRoute
   '/punta-cana': typeof PuntaCanaRoute
   '/poe-pobbin-trade/privacy': typeof PoePobbinTradePrivacyRoute
@@ -68,6 +77,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/emberwake'
+    | '/mega-sena'
     | '/pdf-editor'
     | '/punta-cana'
     | '/poe-pobbin-trade/privacy'
@@ -75,6 +85,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/emberwake'
+    | '/mega-sena'
     | '/pdf-editor'
     | '/punta-cana'
     | '/poe-pobbin-trade/privacy'
@@ -82,6 +93,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/emberwake'
+    | '/mega-sena'
     | '/pdf-editor'
     | '/punta-cana'
     | '/poe-pobbin-trade/privacy'
@@ -90,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EmberwakeRoute: typeof EmberwakeRoute
+  MegaSenaRoute: typeof MegaSenaRoute
   PdfEditorRoute: typeof PdfEditorRoute
   PuntaCanaRoute: typeof PuntaCanaRoute
   PoePobbinTradePrivacyRoute: typeof PoePobbinTradePrivacyRoute
@@ -109,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/pdf-editor'
       fullPath: '/pdf-editor'
       preLoaderRoute: typeof PdfEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mega-sena': {
+      id: '/mega-sena'
+      path: '/mega-sena'
+      fullPath: '/mega-sena'
+      preLoaderRoute: typeof MegaSenaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/emberwake': {
@@ -138,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EmberwakeRoute: EmberwakeRoute,
+  MegaSenaRoute: MegaSenaRoute,
   PdfEditorRoute: PdfEditorRoute,
   PuntaCanaRoute: PuntaCanaRoute,
   PoePobbinTradePrivacyRoute: PoePobbinTradePrivacyRoute,

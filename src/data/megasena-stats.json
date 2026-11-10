@@ -1,0 +1,1142 @@
+{
+ "meta": {
+  "source": "Caixa Econômica Federal (resultados oficiais), espelho loteriascaixa-api verificado contra servicebus2.caixa.gov.br",
+  "firstDraw": {
+   "concurso": 1,
+   "date": "11/03/1996"
+  },
+  "lastDraw": {
+   "concurso": 3083,
+   "date": "08/11/2026",
+   "numbers": [
+    22,
+    25,
+    29,
+    37,
+    46,
+    54
+   ]
+  },
+  "totalDraws": 3083,
+  "expectedPerNumber": 308.3,
+  "oddsSena": 50063860,
+  "generatedAt": "2026-11-10"
+ },
+ "numbers": [
+  {
+   "n": 1,
+   "count": 301,
+   "countFirstHalf": 146,
+   "countSecondHalf": 155,
+   "currentDelay": 16,
+   "maxGap": 50
+  },
+  {
+   "n": 2,
+   "count": 309,
+   "countFirstHalf": 156,
+   "countSecondHalf": 153,
+   "currentDelay": 6,
+   "maxGap": 62
+  },
+  {
+   "n": 3,
+   "count": 283,
+   "countFirstHalf": 150,
+   "countSecondHalf": 133,
+   "currentDelay": 9,
+   "maxGap": 52
+  },
+  {
+   "n": 4,
+   "count": 327,
+   "countFirstHalf": 176,
+   "countSecondHalf": 151,
+   "currentDelay": 1,
+   "maxGap": 56
+  },
+  {
+   "n": 5,
+   "count": 337,
+   "countFirstHalf": 182,
+   "countSecondHalf": 155,
+   "currentDelay": 4,
+   "maxGap": 47
+  },
+  {
+   "n": 6,
+   "count": 315,
+   "countFirstHalf": 150,
+   "countSecondHalf": 165,
+   "currentDelay": 7,
+   "maxGap": 59
+  },
+  {
+   "n": 7,
+   "count": 289,
+   "countFirstHalf": 151,
+   "countSecondHalf": 138,
+   "currentDelay": 5,
+   "maxGap": 66
+  },
+  {
+   "n": 8,
+   "count": 303,
+   "countFirstHalf": 158,
+   "countSecondHalf": 145,
+   "currentDelay": 18,
+   "maxGap": 61
+  },
+  {
+   "n": 9,
+   "count": 296,
+   "countFirstHalf": 134,
+   "countSecondHalf": 162,
+   "currentDelay": 4,
+   "maxGap": 54
+  },
+  {
+   "n": 10,
+   "count": 361,
+   "countFirstHalf": 162,
+   "countSecondHalf": 199,
+   "currentDelay": 2,
+   "maxGap": 55
+  },
+  {
+   "n": 11,
+   "count": 325,
+   "countFirstHalf": 144,
+   "countSecondHalf": 181,
+   "currentDelay": 21,
+   "maxGap": 65
+  },
+  {
+   "n": 12,
+   "count": 285,
+   "countFirstHalf": 161,
+   "countSecondHalf": 124,
+   "currentDelay": 5,
+   "maxGap": 62
+  },
+  {
+   "n": 13,
+   "count": 316,
+   "countFirstHalf": 166,
+   "countSecondHalf": 150,
+   "currentDelay": 3,
+   "maxGap": 54
+  },
+  {
+   "n": 14,
+   "count": 304,
+   "countFirstHalf": 144,
+   "countSecondHalf": 160,
+   "currentDelay": 6,
+   "maxGap": 54
+  },
+  {
+   "n": 15,
+   "count": 276,
+   "countFirstHalf": 138,
+   "countSecondHalf": 138,
+   "currentDelay": 23,
+   "maxGap": 66
+  },
+  {
+   "n": 16,
+   "count": 321,
+   "countFirstHalf": 163,
+   "countSecondHalf": 158,
+   "currentDelay": 1,
+   "maxGap": 44
+  },
+  {
+   "n": 17,
+   "count": 329,
+   "countFirstHalf": 168,
+   "countSecondHalf": 161,
+   "currentDelay": 2,
+   "maxGap": 60
+  },
+  {
+   "n": 18,
+   "count": 294,
+   "countFirstHalf": 148,
+   "countSecondHalf": 146,
+   "currentDelay": 6,
+   "maxGap": 57
+  },
+  {
+   "n": 19,
+   "count": 297,
+   "countFirstHalf": 143,
+   "countSecondHalf": 154,
+   "currentDelay": 13,
+   "maxGap": 83
+  },
+  {
+   "n": 20,
+   "count": 298,
+   "countFirstHalf": 144,
+   "countSecondHalf": 154,
+   "currentDelay": 9,
+   "maxGap": 70
+  },
+  {
+   "n": 21,
+   "count": 261,
+   "countFirstHalf": 130,
+   "countSecondHalf": 131,
+   "currentDelay": 26,
+   "maxGap": 68
+  },
+  {
+   "n": 22,
+   "count": 278,
+   "countFirstHalf": 129,
+   "countSecondHalf": 149,
+   "currentDelay": 0,
+   "maxGap": 51
+  },
+  {
+   "n": 23,
+   "count": 324,
+   "countFirstHalf": 158,
+   "countSecondHalf": 166,
+   "currentDelay": 1,
+   "maxGap": 65
+  },
+  {
+   "n": 24,
+   "count": 309,
+   "countFirstHalf": 167,
+   "countSecondHalf": 142,
+   "currentDelay": 1,
+   "maxGap": 59
+  },
+  {
+   "n": 25,
+   "count": 304,
+   "countFirstHalf": 143,
+   "countSecondHalf": 161,
+   "currentDelay": 0,
+   "maxGap": 81
+  },
+  {
+   "n": 26,
+   "count": 250,
+   "countFirstHalf": 127,
+   "countSecondHalf": 123,
+   "currentDelay": 36,
+   "maxGap": 89
+  },
+  {
+   "n": 27,
+   "count": 331,
+   "countFirstHalf": 156,
+   "countSecondHalf": 175,
+   "currentDelay": 8,
+   "maxGap": 52
+  },
+  {
+   "n": 28,
+   "count": 317,
+   "countFirstHalf": 165,
+   "countSecondHalf": 152,
+   "currentDelay": 3,
+   "maxGap": 51
+  },
+  {
+   "n": 29,
+   "count": 304,
+   "countFirstHalf": 165,
+   "countSecondHalf": 139,
+   "currentDelay": 0,
+   "maxGap": 60
+  },
+  {
+   "n": 30,
+   "count": 328,
+   "countFirstHalf": 156,
+   "countSecondHalf": 172,
+   "currentDelay": 7,
+   "maxGap": 40
+  },
+  {
+   "n": 31,
+   "count": 286,
+   "countFirstHalf": 152,
+   "countSecondHalf": 134,
+   "currentDelay": 6,
+   "maxGap": 60
+  },
+  {
+   "n": 32,
+   "count": 326,
+   "countFirstHalf": 160,
+   "countSecondHalf": 166,
+   "currentDelay": 7,
+   "maxGap": 74
+  },
+  {
+   "n": 33,
+   "count": 329,
+   "countFirstHalf": 172,
+   "countSecondHalf": 157,
+   "currentDelay": 16,
+   "maxGap": 57
+  },
+  {
+   "n": 34,
+   "count": 324,
+   "countFirstHalf": 157,
+   "countSecondHalf": 167,
+   "currentDelay": 5,
+   "maxGap": 73
+  },
+  {
+   "n": 35,
+   "count": 325,
+   "countFirstHalf": 146,
+   "countSecondHalf": 179,
+   "currentDelay": 6,
+   "maxGap": 62
+  },
+  {
+   "n": 36,
+   "count": 314,
+   "countFirstHalf": 159,
+   "countSecondHalf": 155,
+   "currentDelay": 5,
+   "maxGap": 58
+  },
+  {
+   "n": 37,
+   "count": 332,
+   "countFirstHalf": 155,
+   "countSecondHalf": 177,
+   "currentDelay": 0,
+   "maxGap": 53
+  },
+  {
+   "n": 38,
+   "count": 330,
+   "countFirstHalf": 146,
+   "countSecondHalf": 184,
+   "currentDelay": 1,
+   "maxGap": 78
+  },
+  {
+   "n": 39,
+   "count": 296,
+   "countFirstHalf": 138,
+   "countSecondHalf": 158,
+   "currentDelay": 3,
+   "maxGap": 61
+  },
+  {
+   "n": 40,
+   "count": 295,
+   "countFirstHalf": 150,
+   "countSecondHalf": 145,
+   "currentDelay": 4,
+   "maxGap": 79
+  },
+  {
+   "n": 41,
+   "count": 316,
+   "countFirstHalf": 164,
+   "countSecondHalf": 152,
+   "currentDelay": 4,
+   "maxGap": 61
+  },
+  {
+   "n": 42,
+   "count": 327,
+   "countFirstHalf": 165,
+   "countSecondHalf": 162,
+   "currentDelay": 2,
+   "maxGap": 109
+  },
+  {
+   "n": 43,
+   "count": 327,
+   "countFirstHalf": 164,
+   "countSecondHalf": 163,
+   "currentDelay": 2,
+   "maxGap": 61
+  },
+  {
+   "n": 44,
+   "count": 323,
+   "countFirstHalf": 159,
+   "countSecondHalf": 164,
+   "currentDelay": 1,
+   "maxGap": 65
+  },
+  {
+   "n": 45,
+   "count": 300,
+   "countFirstHalf": 137,
+   "countSecondHalf": 163,
+   "currentDelay": 12,
+   "maxGap": 63
+  },
+  {
+   "n": 46,
+   "count": 320,
+   "countFirstHalf": 141,
+   "countSecondHalf": 179,
+   "currentDelay": 0,
+   "maxGap": 48
+  },
+  {
+   "n": 47,
+   "count": 294,
+   "countFirstHalf": 154,
+   "countSecondHalf": 140,
+   "currentDelay": 14,
+   "maxGap": 50
+  },
+  {
+   "n": 48,
+   "count": 289,
+   "countFirstHalf": 142,
+   "countSecondHalf": 147,
+   "currentDelay": 17,
+   "maxGap": 51
+  },
+  {
+   "n": 49,
+   "count": 312,
+   "countFirstHalf": 166,
+   "countSecondHalf": 146,
+   "currentDelay": 7,
+   "maxGap": 79
+  },
+  {
+   "n": 50,
+   "count": 300,
+   "countFirstHalf": 165,
+   "countSecondHalf": 135,
+   "currentDelay": 18,
+   "maxGap": 76
+  },
+  {
+   "n": 51,
+   "count": 310,
+   "countFirstHalf": 171,
+   "countSecondHalf": 139,
+   "currentDelay": 12,
+   "maxGap": 76
+  },
+  {
+   "n": 52,
+   "count": 309,
+   "countFirstHalf": 167,
+   "countSecondHalf": 142,
+   "currentDelay": 12,
+   "maxGap": 58
+  },
+  {
+   "n": 53,
+   "count": 350,
+   "countFirstHalf": 170,
+   "countSecondHalf": 180,
+   "currentDelay": 18,
+   "maxGap": 42
+  },
+  {
+   "n": 54,
+   "count": 319,
+   "countFirstHalf": 174,
+   "countSecondHalf": 145,
+   "currentDelay": 0,
+   "maxGap": 62
+  },
+  {
+   "n": 55,
+   "count": 265,
+   "countFirstHalf": 138,
+   "countSecondHalf": 127,
+   "currentDelay": 8,
+   "maxGap": 73
+  },
+  {
+   "n": 56,
+   "count": 320,
+   "countFirstHalf": 153,
+   "countSecondHalf": 167,
+   "currentDelay": 25,
+   "maxGap": 68
+  },
+  {
+   "n": 57,
+   "count": 294,
+   "countFirstHalf": 149,
+   "countSecondHalf": 145,
+   "currentDelay": 2,
+   "maxGap": 58
+  },
+  {
+   "n": 58,
+   "count": 302,
+   "countFirstHalf": 151,
+   "countSecondHalf": 151,
+   "currentDelay": 3,
+   "maxGap": 65
+  },
+  {
+   "n": 59,
+   "count": 294,
+   "countFirstHalf": 156,
+   "countSecondHalf": 138,
+   "currentDelay": 2,
+   "maxGap": 59
+  },
+  {
+   "n": 60,
+   "count": 298,
+   "countFirstHalf": 145,
+   "countSecondHalf": 153,
+   "currentDelay": 13,
+   "maxGap": 65
+  }
+ ],
+ "topPairs": [
+  {
+   "pair": [
+    5,
+    27
+   ],
+   "count": 43
+  },
+  {
+   "pair": [
+    4,
+    52
+   ],
+   "count": 42
+  },
+  {
+   "pair": [
+    38,
+    53
+   ],
+   "count": 42
+  },
+  {
+   "pair": [
+    23,
+    53
+   ],
+   "count": 42
+  },
+  {
+   "pair": [
+    36,
+    53
+   ],
+   "count": 42
+  },
+  {
+   "pair": [
+    5,
+    11
+   ],
+   "count": 41
+  },
+  {
+   "pair": [
+    41,
+    58
+   ],
+   "count": 41
+  },
+  {
+   "pair": [
+    42,
+    49
+   ],
+   "count": 40
+  },
+  {
+   "pair": [
+    6,
+    34
+   ],
+   "count": 40
+  },
+  {
+   "pair": [
+    41,
+    53
+   ],
+   "count": 40
+  }
+ ],
+ "topTrios": [
+  {
+   "trio": [
+    9,
+    41,
+    49
+   ],
+   "count": 8
+  },
+  {
+   "trio": [
+    5,
+    24,
+    25
+   ],
+   "count": 8
+  },
+  {
+   "trio": [
+    29,
+    38,
+    50
+   ],
+   "count": 8
+  },
+  {
+   "trio": [
+    24,
+    25,
+    42
+   ],
+   "count": 8
+  },
+  {
+   "trio": [
+    6,
+    11,
+    40
+   ],
+   "count": 8
+  }
+ ],
+ "evenCountDistribution": [
+  {
+   "evens": 0,
+   "draws": 40
+  },
+  {
+   "evens": 1,
+   "draws": 271
+  },
+  {
+   "evens": 2,
+   "draws": 742
+  },
+  {
+   "evens": 3,
+   "draws": 949
+  },
+  {
+   "evens": 4,
+   "draws": 750
+  },
+  {
+   "evens": 5,
+   "draws": 293
+  },
+  {
+   "evens": 6,
+   "draws": 38
+  }
+ ],
+ "sum": {
+  "min": 63,
+  "minConcurso": 3022,
+  "max": 331,
+  "maxConcurso": 2052,
+  "avg": 183.1,
+  "histogram": [
+   {
+    "from": 60,
+    "to": 79,
+    "draws": 13
+   },
+   {
+    "from": 80,
+    "to": 99,
+    "draws": 43
+   },
+   {
+    "from": 100,
+    "to": 119,
+    "draws": 118
+   },
+   {
+    "from": 120,
+    "to": 139,
+    "draws": 255
+   },
+   {
+    "from": 140,
+    "to": 159,
+    "draws": 447
+   },
+   {
+    "from": 160,
+    "to": 179,
+    "draws": 533
+   },
+   {
+    "from": 180,
+    "to": 199,
+    "draws": 591
+   },
+   {
+    "from": 200,
+    "to": 219,
+    "draws": 513
+   },
+   {
+    "from": 220,
+    "to": 239,
+    "draws": 326
+   },
+   {
+    "from": 240,
+    "to": 259,
+    "draws": 170
+   },
+   {
+    "from": 260,
+    "to": 279,
+    "draws": 49
+   },
+   {
+    "from": 280,
+    "to": 299,
+    "draws": 22
+   },
+   {
+    "from": 300,
+    "to": 319,
+    "draws": 2
+   },
+   {
+    "from": 320,
+    "to": 339,
+    "draws": 1
+   }
+  ]
+ },
+ "consecutive": {
+  "drawsWithConsecutive": 1295
+ },
+ "repeatFromPrevious": [
+  {
+   "repeated": 0,
+   "draws": 1602
+  },
+  {
+   "repeated": 1,
+   "draws": 1201
+  },
+  {
+   "repeated": 2,
+   "draws": 252
+  },
+  {
+   "repeated": 3,
+   "draws": 25
+  },
+  {
+   "repeated": 4,
+   "draws": 1
+  },
+  {
+   "repeated": 5,
+   "draws": 1
+  }
+ ],
+ "notableRepeats": [
+  {
+   "from": 308,
+   "to": 309,
+   "date": "31/10/2001",
+   "repeated": [
+    4,
+    11,
+    25,
+    39,
+    55
+   ]
+  },
+  {
+   "from": 1225,
+   "to": 1226,
+   "date": "27/10/2010",
+   "repeated": [
+    31,
+    40,
+    50,
+    55
+   ]
+  }
+ ],
+ "decades": [
+  {
+   "range": "01–10",
+   "count": 3121
+  },
+  {
+   "range": "11–20",
+   "count": 3045
+  },
+  {
+   "range": "21–30",
+   "count": 3006
+  },
+  {
+   "range": "31–40",
+   "count": 3157
+  },
+  {
+   "range": "41–50",
+   "count": 3108
+  },
+  {
+   "range": "51–60",
+   "count": 3061
+  }
+ ],
+ "duplicateCombinations": 0,
+ "prizes": {
+  "accumulatedDraws": 2420,
+  "longestAccumulatedStreak": {
+   "length": 17,
+   "endedAtConcurso": 3076
+  },
+  "topTotalPrizes": [
+   {
+    "total": 1091357286.54,
+    "perWinner": 181892881.09,
+    "winners": 6,
+    "concurso": 2955,
+    "date": "01/01/2026"
+   },
+   {
+    "total": 635486165.36,
+    "perWinner": 79435770.67,
+    "winners": 8,
+    "concurso": 2810,
+    "date": "31/12/2024"
+   },
+   {
+    "total": 588891021.25,
+    "perWinner": 117778204.25,
+    "winners": 5,
+    "concurso": 2670,
+    "date": "31/12/2023"
+   },
+   {
+    "total": 541969966.3,
+    "perWinner": 108393993.26,
+    "winners": 5,
+    "concurso": 2550,
+    "date": "31/12/2022"
+   },
+   {
+    "total": 378124727.48,
+    "perWinner": 189062363.74,
+    "winners": 2,
+    "concurso": 2440,
+    "date": "31/12/2021"
+   }
+  ],
+  "topSinglePrizes": [
+   {
+    "prize": 324898791.61,
+    "concurso": 3077,
+    "date": "28/10/2026"
+   },
+   {
+    "prize": 289420865.0,
+    "concurso": 2150,
+    "date": "11/05/2019"
+   },
+   {
+    "prize": 206475189.75,
+    "concurso": 2696,
+    "date": "05/03/2024"
+   },
+   {
+    "prize": 205329753.89,
+    "concurso": 1764,
+    "date": "25/11/2015"
+   },
+   {
+    "prize": 201963763.26,
+    "concurso": 2795,
+    "date": "09/11/2024"
+   }
+  ],
+  "mostWinners": [
+   {
+    "winners": 52,
+    "perWinner": 5818007.36,
+    "concurso": 2110,
+    "date": "31/12/2018"
+   },
+   {
+    "winners": 17,
+    "perWinner": 18042279.04,
+    "concurso": 2000,
+    "date": "31/12/2017"
+   },
+   {
+    "winners": 15,
+    "perWinner": 348732.75,
+    "concurso": 529,
+    "date": "14/01/2004"
+   }
+  ]
+ },
+ "byYear": [
+  {
+   "year": "1996",
+   "draws": 43,
+   "accumulated": 35,
+   "maxPrize": 18661679.61,
+   "winners": 9
+  },
+  {
+   "year": "1997",
+   "draws": 52,
+   "accumulated": 44,
+   "maxPrize": 21026575.4,
+   "winners": 9
+  },
+  {
+   "year": "1998",
+   "draws": 53,
+   "accumulated": 43,
+   "maxPrize": 33597755.21,
+   "winners": 11
+  },
+  {
+   "year": "1999",
+   "draws": 52,
+   "accumulated": 37,
+   "maxPrize": 64905517.65,
+   "winners": 18
+  },
+  {
+   "year": "2000",
+   "draws": 52,
+   "accumulated": 39,
+   "maxPrize": 15107002.24,
+   "winners": 28
+  },
+  {
+   "year": "2001",
+   "draws": 73,
+   "accumulated": 56,
+   "maxPrize": 25186260.21,
+   "winners": 20
+  },
+  {
+   "year": "2002",
+   "draws": 100,
+   "accumulated": 80,
+   "maxPrize": 18979599.19,
+   "winners": 25
+  },
+  {
+   "year": "2003",
+   "draws": 100,
+   "accumulated": 80,
+   "maxPrize": 42794697.56,
+   "winners": 35
+  },
+  {
+   "year": "2004",
+   "draws": 102,
+   "accumulated": 81,
+   "maxPrize": 46663532.7,
+   "winners": 38
+  },
+  {
+   "year": "2005",
+   "draws": 98,
+   "accumulated": 81,
+   "maxPrize": 51890452.61,
+   "winners": 24
+  },
+  {
+   "year": "2006",
+   "draws": 104,
+   "accumulated": 90,
+   "maxPrize": 40539530.9,
+   "winners": 17
+  },
+  {
+   "year": "2007",
+   "draws": 102,
+   "accumulated": 80,
+   "maxPrize": 52807317.17,
+   "winners": 26
+  },
+  {
+   "year": "2008",
+   "draws": 104,
+   "accumulated": 78,
+   "maxPrize": 32271347.11,
+   "winners": 37
+  },
+  {
+   "year": "2009",
+   "draws": 105,
+   "accumulated": 71,
+   "maxPrize": 72450747.46,
+   "winners": 45
+  },
+  {
+   "year": "2010",
+   "draws": 105,
+   "accumulated": 86,
+   "maxPrize": 119142144.27,
+   "winners": 35
+  },
+  {
+   "year": "2011",
+   "draws": 105,
+   "accumulated": 80,
+   "maxPrize": 73451540.26,
+   "winners": 37
+  },
+  {
+   "year": "2012",
+   "draws": 105,
+   "accumulated": 70,
+   "maxPrize": 81594699.72,
+   "winners": 54
+  },
+  {
+   "year": "2013",
+   "draws": 105,
+   "accumulated": 68,
+   "maxPrize": 80499108.16,
+   "winners": 46
+  },
+  {
+   "year": "2014",
+   "draws": 105,
+   "accumulated": 71,
+   "maxPrize": 111503902.49,
+   "winners": 46
+  },
+  {
+   "year": "2015",
+   "draws": 110,
+   "accumulated": 79,
+   "maxPrize": 205329753.89,
+   "winners": 44
+  },
+  {
+   "year": "2016",
+   "draws": 115,
+   "accumulated": 89,
+   "maxPrize": 92303225.84,
+   "winners": 38
+  },
+  {
+   "year": "2017",
+   "draws": 110,
+   "accumulated": 88,
+   "maxPrize": 107956102.12,
+   "winners": 43
+  },
+  {
+   "year": "2018",
+   "draws": 110,
+   "accumulated": 89,
+   "maxPrize": 104545829.37,
+   "winners": 82
+  },
+  {
+   "year": "2019",
+   "draws": 110,
+   "accumulated": 91,
+   "maxPrize": 289420865.0,
+   "winners": 22
+  },
+  {
+   "year": "2020",
+   "draws": 110,
+   "accumulated": 91,
+   "maxPrize": 162625108.22,
+   "winners": 25
+  },
+  {
+   "year": "2021",
+   "draws": 110,
+   "accumulated": 85,
+   "maxPrize": 189062363.74,
+   "winners": 33
+  },
+  {
+   "year": "2022",
+   "draws": 110,
+   "accumulated": 88,
+   "maxPrize": 158926894.27,
+   "winners": 32
+  },
+  {
+   "year": "2023",
+   "draws": 120,
+   "accumulated": 96,
+   "maxPrize": 117778204.25,
+   "winners": 38
+  },
+  {
+   "year": "2024",
+   "draws": 140,
+   "accumulated": 122,
+   "maxPrize": 206475189.75,
+   "winners": 30
+  },
+  {
+   "year": "2025",
+   "draws": 144,
+   "accumulated": 120,
+   "maxPrize": 131361519.85,
+   "winners": 26
+  },
+  {
+   "year": "2026",
+   "draws": 129,
+   "accumulated": 112,
+   "maxPrize": 324898791.61,
+   "winners": 25
+  }
+ ],
+ "randomnessTests": [
+  {
+   "label": "Concursos 1–1541 (1996–2013)",
+   "chiSquare": 58.6,
+   "pValueSimulated": 0.318,
+   "degreesOfFreedom": 59
+  },
+  {
+   "label": "Concursos 1542–3083 (2013–2026)",
+   "chiSquare": 95.8,
+   "pValueSimulated": 0.0,
+   "degreesOfFreedom": 59
+  },
+  {
+   "label": "Histórico completo",
+   "chiSquare": 82.6,
+   "pValueSimulated": 0.006,
+   "degreesOfFreedom": 59
+  }
+ ],
+ "randomnessCaveat": "Teste qui-quadrado com p-valor por simulação Monte Carlo (500 históricos aleatórios). Vários recortes testados, o que aumenta a chance de falso positivo. Não implica previsibilidade: cada combinação continua com chance de 1 em 50.063.860."
+}
